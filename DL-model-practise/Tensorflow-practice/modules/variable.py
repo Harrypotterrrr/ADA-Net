@@ -1,0 +1,17 @@
+import tensorflow as tf
+
+state = tf.Variable(0, name="counter")
+print(state.name)
+one = tf.constant(1)
+
+new_state = tf.add(state, one)
+update = tf.assign(state, new_state)
+
+init = tf.global_variables_initializer()
+
+with tf.Session() as sess:
+    sess.run(init)
+
+    for _ in range(50):
+        sess.run(update)
+        print(sess.run(state))

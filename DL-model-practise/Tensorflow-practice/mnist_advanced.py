@@ -73,7 +73,7 @@ if __name__ == "__main__":
     y_predict = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
 
     cross_entropy = -tf.reduce_sum(y_target * tf.log(y_predict))
-    optimizer = tf.train.AdamOptimizer(learning_rate=-4)
+    optimizer = tf.train.AdamOptimizer(learning_rate=1e-4)
     train = optimizer.minimize(cross_entropy)
 
     correct_prediction = tf.equal(tf.argmax(y_predict, 1), tf.argmax(y_target, 1))
@@ -98,4 +98,4 @@ if __name__ == "__main__":
                 print("step %d, training accuracy: %.6f" % (i, nw_accuracy))
 
     t_end = time.clock()
-    print("running time:", (t_end - t_start) / 1000)
+    print("running time:", (t_end - t_start))
