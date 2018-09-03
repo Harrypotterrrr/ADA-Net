@@ -53,9 +53,9 @@ if __name__ == "__main__":
     hide_layer2 = add_layers(2, hide_layer1, 100, 100, activation_function=tf.nn.relu)
     outputs = add_layers(3, hide_layer2, 100, 1, activation_function=None)
 
-    error_sum = tf.reduce_sum(tf.square(y_sample - outputs), reduction_indices=[1])
 
     with tf.name_scope("loss"):
+        error_sum = tf.reduce_sum(tf.square(y_sample - outputs), reduction_indices=[1])
         loss = tf.reduce_mean(error_sum)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.005)
@@ -69,8 +69,7 @@ if __name__ == "__main__":
         fig = plt.figure(figsize=(10,5))
         ax_figure = fig.add_subplot(1, 2, 1)
         ax_loss = fig.add_subplot(1,2,2)
-        plt.ion()
-        plt.show()
+        plt.ion()   # turn on the interactive mode
 
         loss_list = []
 
@@ -108,6 +107,7 @@ if __name__ == "__main__":
 
                 ax_loss.plot(range(len(loss_list)),loss_list, c='b')
 
-
+        plt.ioff()  # turn off the interactive mode
+        plt.show()
 
         test_model()
