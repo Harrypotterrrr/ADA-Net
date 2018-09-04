@@ -1,6 +1,9 @@
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+
+os.environ['TP_CPP_MIN_LOG_LEVEL']='2'
 
 data_size = 200
 data_mean = 2
@@ -50,21 +53,30 @@ if __name__ == "__main__":
     layer_drop = tf.layers.dropout(layer2, rate=dropout_rate)
     outputs = tf.layers.dense(layer_drop, 4)
 
+    # NOTE："tf.losses.sparse_softmax_cross_entropy()" demand the labelis a scalar("sparse"),
+    # instead of 4-dimension on-hot vector, link: https://blog.csdn.net/wenzishou/article/details/75810078
+    # "tf.losses.sparse_softmax_cross_entropy()" is the updated version of:
+    # "tf.nn.sparse_softmax_cross_entropy_with_logits()"
     with tf.name_scope("loss"):
         # version 1.
-        # loss = tf.losses.sparse_softmax_cross_entropy(labels=y_sample, logits=outputs)
+        loss_sigmoid = tf.losses.sigmoid_cross_entropy(multi_class_labels=y_sample, logits=outputs)
+
         # version 2.
-        # loss_softmax = tf.losses.softmax_cross_entropy(onehot_labels=y_sample, logits=outputs)
+        loss_softmax = tf.losses.softmax_cross_entropy(onehot_labels=y_sample, logits=outputs)
 
         # version 3.
         # error_sum = tf.reduce_sum(tf.add(y_sample, -outputs))
         # loss = -tf.reduce_sum(y_sample * tf.log(outputs))
 
         # version 4.
-        loss_sigmoid = tf.nn.sigmoid_cross_entropy_with_logits(labels=y_sample, logits=outputs)
+        # loss_sigmoid = tf.nn.sigmoid_cross_entropy_with_logits(labels=y_sample, logits=outputs)
 
-        #version 5.
-        loss_softmax = tf.nn.softmax_cross_entropy_with_logits_v2(labels=y_sample, logits=outputs)
+        # version 5.
+        # loss_softmax = tf.nn.softmax_cross_entropy_with_logits_v2(labels=y_sample, logits=outputs)
+
+        # WRONG-version 6.
+        # loss_sigmoid = tf.losses.sparse_sigmoid_cross_entropy(labels=y_sample, logits=outputs)
+
 
     with tf.name_scope("learning_rate"):
         steps = tf.Variable(tf.constant(0))
