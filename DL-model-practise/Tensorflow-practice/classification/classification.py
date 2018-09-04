@@ -1,12 +1,17 @@
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
-import math
 
 data_size = 200
 data_mean = 2
 data_stddev = 1.5
 dropout_rate = 0.5
+training_loop = 4000
+print_cycle = 10
+learning_rate_init = 0.05
+
+decay_rate = 0.94
+decay_steps = 100
 
 def create_color():
     y_color = [0.1] * data_size
@@ -46,19 +51,35 @@ if __name__ == "__main__":
     outputs = tf.layers.dense(layer_drop, 4)
 
     with tf.name_scope("loss"):
-        # version 1. loss = tf.losses.sparse_softmax_cross_entropy(labels=y_sample, logits=outputs)
-        # version 2. loss = tf.losses.softmax_cross_entropy(onehot_labels=y_sample, logits=outputs)
+        # version 1.
+        # loss = tf.losses.sparse_softmax_cross_entropy(labels=y_sample, logits=outputs)
+        # version 2.
+        # loss_softmax = tf.losses.softmax_cross_entropy(onehot_labels=y_sample, logits=outputs)
 
         # version 3.
         # error_sum = tf.reduce_sum(tf.add(y_sample, -outputs))
         # loss = -tf.reduce_sum(y_sample * tf.log(outputs))
 
         # version 4.
-        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y_sample, logits=outputs)
+        loss_sigmoid = tf.nn.sigmoid_cross_entropy_with_logits(labels=y_sample, logits=outputs)
+
+        #version 5.
+        loss_softmax = tf.nn.softmax_cross_entropy_with_logits_v2(labels=y_sample, logits=outputs)
+
+    with tf.name_scope("learning_rate"):
+        steps = tf.Variable(tf.constant(0))
+        lr_decay = tf.train.exponential_decay(
+            learning_rate_init,
+            steps,
+            decay_steps,
+            decay_rate,
+            staircase = True
+        )
 
     with tf.name_scope("train"):
         optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.005)
-        train = optimizer.minimize(loss)
+        train_sigmoid = optimizer.minimize(loss_sigmoid)
+        train_softmax = optimizer.minimize(loss_softmax)
 
     with tf.name_scope("accuracy"):
         error_bool = tf.equal(tf.argmax(y_sample, axis=1), tf.argmax(outputs, axis=1))
@@ -87,24 +108,53 @@ if __name__ == "__main__":
         init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
         sess.run(init)  # initialize var in graph
 
+
         loss_list = []
         acc_list = []
-        for i in range(4000):
+        for i in range(training_loop):
 
-            _, loss_, acc_, outputs_ = sess.run(
-                [train, loss, accuracy, outputs],
+            _, lr, loss_, acc_, outputs_ = sess.run(
+                [train_sigmoid, lr_decay, loss_sigmoid, accuracy, outputs],
                 feed_dict={
                     x_sample: x,
-                    y_sample: y
+                    y_sample: y,
+                    steps: i
                 }
             )
 
-            if i % 10 == 0:
+            if i % print_cycle == 0:
                 acc_list.append(acc_)
-                print("accuracy: ", acc_)
+                # print("accuracy: ", acc_)
                 # print("loss: ", loss_)
 
+        ax2.plot(range(0,training_loop,print_cycle), acc_list, color='orange', label="sigmoid")
 
-        ax2.plot(range(400), acc_list)
+    print("===================================")
 
+    with tf.Session() as sess:
+
+        init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+        sess.run(init)  # initialize var in graph
+
+        loss_list = []
+        acc_list = []
+        for i in range(training_loop):
+
+            _, lr, loss_, acc_, outputs_ = sess.run(
+                [train_softmax, lr_decay, loss_softmax, accuracy, outputs],
+                feed_dict={
+                    x_sample: x,
+                    y_sample: y,
+                    steps: i
+                }
+            )
+
+            if i % print_cycle == 0:
+                acc_list.append(acc_)
+                # print("accuracy: ", acc_)
+                # print("loss: ", loss_)
+
+        ax2.plot(range(0,training_loop,print_cycle), acc_list, color='red', label='softmax')
+
+    plt.legend(loc="lower right")
     plt.show()
