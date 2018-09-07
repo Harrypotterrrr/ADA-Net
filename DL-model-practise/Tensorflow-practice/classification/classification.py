@@ -77,6 +77,9 @@ if __name__ == "__main__":
         # WRONG-version 6.
         # loss_sigmoid = tf.losses.sparse_sigmoid_cross_entropy(labels=y_sample, logits=outputs)
 
+    tf.summary.scalar('loss_sigmoid', loss_sigmoid)
+        # tf.summary.scalar('loss_softmax', loss_softmax)
+
 
     with tf.name_scope("learning_rate"):
         steps = tf.Variable(tf.constant(0))
@@ -92,6 +95,8 @@ if __name__ == "__main__":
         optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.005)
         train_sigmoid = optimizer.minimize(loss_sigmoid)
         train_softmax = optimizer.minimize(loss_softmax)
+
+
 
     with tf.name_scope("accuracy"):
         error_bool = tf.equal(tf.argmax(y_sample, axis=1), tf.argmax(outputs, axis=1))
@@ -114,6 +119,10 @@ if __name__ == "__main__":
     #     print(acc)
     #     input()
     # ####################################
+
+    merged = tf.summary.merge_all()
+    writer = tf.summary.FileWriter("log/", graph=tf.get_default_graph())
+
 
     with tf.Session() as sess:
 
@@ -139,13 +148,21 @@ if __name__ == "__main__":
                 # print("accuracy: ", acc_)
                 # print("loss: ", loss_)
 
+                rs = sess.run(merged, feed_dict={x_sample: x, y_sample: y})
+                writer.add_summary(rs, i)
+
+
         ax2.plot(range(0,training_loop,print_cycle), acc_list, color='orange', label="sigmoid")
 
     print("===================================")
 
+
+    # merged = tf.summary.merge_all()
+
     with tf.Session() as sess:
 
         init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+
         sess.run(init)  # initialize var in graph
 
         loss_list = []
@@ -165,6 +182,9 @@ if __name__ == "__main__":
                 acc_list.append(acc_)
                 # print("accuracy: ", acc_)
                 # print("loss: ", loss_)
+
+                # rs = sess.run(merged, feed_dict={x_sample: x, y_sample: y})
+                # writer.add_summary(rs, i)
 
         ax2.plot(range(0,training_loop,print_cycle), acc_list, color='red', label='softmax')
 
