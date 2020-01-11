@@ -50,13 +50,14 @@ class Trainer(object):
         self.sample_path = os.path.join(config.sample_path, self.version)
         self.model_save_path = os.path.join(config.model_save_path, self.version)
 
-
+        # Set GPU
         self.device, self.parallel, self.gpus = set_device(config)
 
+        # Build model
+        self.epoch2step()
         self.build_model()
-        self.beta_distr = Beta(torch.tensor([1.0]), torch.tensor([1.0]))
-        self.cross_entropy = nn.CrossEntropyLoss()
-        self.kl_divergence = nn.KLDivLoss()
+        self.build_opt_schr()
+        self.build_loss()
 
         if self.use_tensorboard:
             self.build_tensorboard()
@@ -66,6 +67,11 @@ class Trainer(object):
             print('load_pretrained_model...')
             self.load_pretrained_model()
 
+    def build_loss(self):
+
+        self.beta_distr = Beta(torch.tensor([1.0]), torch.tensor([1.0]))
+        self.cross_entropy = nn.CrossEntropyLoss()
+        self.kl_divergence = nn.KLDivLoss(reduction='batchmean')
 
     def build_opt_schr(self):
 
@@ -104,7 +110,7 @@ class Trainer(object):
         inter_img = label_img * _alpha + unlabel_img * (1-_alpha)
         a = label_gt * alpha
         inter_img_gt = label_gt * alpha + unlabel_pesudo * (1-alpha)
-        inter_true = torch.stack([alpha, 1-alpha], dim=1).to(self.device)
+        inter_true = torch.stack([alpha, 1-alpha], dim=1).squeeze(2).to(self.device)
 
         assert inter_img.shape == label_img.shape
         assert inter_img_gt.shape == label_gt.shape
@@ -117,7 +123,6 @@ class Trainer(object):
         # Data iterator
         label_iter = iter(self.label_loader)
         unlabel_iter = iter(self.unlabel_loader)
-        self.epoch2step()
 
         # Start with trained model
         if self.pretrained_model:
@@ -133,6 +138,8 @@ class Trainer(object):
 
             try:
                 (label_img, label_gt), (unlabel_img, _) = label_iter.next(), unlabel_iter.next()
+                if label_img.shape[0] != unlabel_img.shape[0]:
+                    raise Exception
             except:
                 label_iter = iter(self.label_loader)
                 unlabel_iter = iter(self.unlabel_loader)
@@ -181,35 +188,35 @@ class Trainer(object):
                 elapsed = time.time() - start_time
                 elapsed = str(datetime.timedelta(seconds=elapsed))
                 start_time = time.time()
-                log_str = "Epoch: [%d/%d], Step: [%d/%d], time: %s, ds_loss: %.4f, dt_loss: %.4f, g_s_loss: %.4f, g_t_loss: %.4f, g_loss: %.4f, lr: %.2e" % \
-                    (self.epoch, self.total_epoch, step, self.total_step, elapsed, ds_loss, dt_loss, g_s_loss, g_t_loss, g_loss, self.g_lr_scher.get_lr()[0])
+                log_str = "Epoch: [%d/%d], Step: [%d/%d], time: %s, total_loss: %.4f, res_loss: %.4f, cls_loss: %.4f, disc_loss: %.4f, lr: %.2e" % \
+                    (self.epoch, self.total_epoch, step, self.total_step, elapsed, total_loss, res_loss.item(), cls_loss.item(), disc_loss.item(), self.lr_scher.get_lr()[0])
 
                 if self.use_tensorboard is True:
-                    write_log(self.writer, log_str, step, ds_loss_real, ds_loss_fake, ds_loss, dt_loss_real, dt_loss_fake, dt_loss, g_loss)
+                    write_log(self.writer, log_str, step, total_loss, res_loss, cls_loss, disc_loss)
                 print(log_str)
 
-            # Sample images
-            if step % self.sample_step == 0:
-                self.G.eval()
-                fake_videos = self.G(fixed_z, fixed_label)
-
-                for i in range(self.n_class):
-                    for j in range(self.test_batch_size):
-                        if self.use_tensorboard is True:
-                            self.writer.add_image("Class_%d_No.%d/Step_%d" % (i, j, step), make_grid(denorm(fake_videos[i * self.test_batch_size + j].data)), step)
-                        else:
-                            save_image(denorm(fake_videos[i * self.test_batch_size + j].data), os.path.join(self.sample_path, "Class_%d_No.%d_Step_%d" % (i, j, step)))
-                # print('Saved sample images {}_fake.png'.format(step))
-                self.G.train()
+            # # Sample images
+            # if step % self.sample_step == 0:
+            #     self.G.eval()
+            #     fake_videos = self.G(fixed_z, fixed_label)
+            #
+            #     for i in range(self.n_class):
+            #         for j in range(self.test_batch_size):
+            #             if self.use_tensorboard is True:
+            #                 self.writer.add_image("Class_%d_No.%d/Step_%d" % (i, j, step), make_grid(denorm(fake_videos[i * self.test_batch_size + j].data)), step)
+            #             else:
+            #                 save_image(denorm(fake_videos[i * self.test_batch_size + j].data), os.path.join(self.sample_path, "Class_%d_No.%d_Step_%d" % (i, j, step)))
+            #     # print('Saved sample images {}_fake.png'.format(step))
+            #     self.G.train()
 
             # Save model
             if step % self.model_save_step == 0:
-                torch.save(self.G.state_dict(),
-                           os.path.join(self.model_save_path, '{}_G.pth'.format(step)))
-                torch.save(self.D_s.state_dict(),
-                           os.path.join(self.model_save_path, '{}_Ds.pth'.format(step)))
-                torch.save(self.D_t.state_dict(),
-                           os.path.join(self.model_save_path, '{}_Dt.pth'.format(step)))
+                torch.save(self.resnet.state_dict(),
+                           os.path.join(self.model_save_path, '{}_res.pth'.format(step)))
+                torch.save(self.classifier.state_dict(),
+                           os.path.join(self.model_save_path, '{}_cls.pth'.format(step)))
+                torch.save(self.disc.state_dict(),
+                           os.path.join(self.model_save_path, '{}_dis.pth'.format(step)))
 
     def build_model(self):
 
@@ -227,9 +234,6 @@ class Trainer(object):
             self.classifier = nn.DataParallel(self.classifier, device_ids=self.gpus)
             self.disc = nn.DataParallel(self.disc, device_ids=self.gpus)
 
-        self.build_opt_schr()
-
-        self.c_loss = torch.nn.CrossEntropyLoss()
 
     def build_tensorboard(self):
         from tensorboardX import SummaryWriter
