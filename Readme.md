@@ -1,4 +1,4 @@
-# DVD-GAN
+# ADA-Net
 This repo is a pytorch implementation of [*Semi-Supervised Learning by Augmented Distribution Alignment*](https://arxiv.org/abs/1905.08171)
 
 ## Prerequisite
