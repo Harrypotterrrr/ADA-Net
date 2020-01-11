@@ -56,7 +56,6 @@ class Discriminator(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, input_dim=3, stochastic=True, lambd=0.0):
         super().__init__()
-        self.lambd = float(lambd)
         self.block1 = self.conv_block(input_dim, 128, 3, 1, padding=1, lrelu_slope=0.1)
         self.block2 = self.conv_block(128, 128, 3, 1, 1, 0.1)
         self.block3 = self.conv_block(128, 128, 3, 1, 1, 0.1)
