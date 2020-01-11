@@ -9,19 +9,11 @@ from Dataloader.data_loader import get_train_loader
 
 def main(config):
 
-    config.video_path = os.path.join(config.root_path, config.video_path)
-    config.annotation_path = os.path.join(config.root_path, config.annotation_path)
-
-
     if config.train:
-
         print("="*30,"\nLoading data...")
         label_loader, unlabel_loader = get_train_loader(config)
-
     else:
         pass
-
-    print('number class:', config.n_class)
 
     # Create directories if not exist
     make_folder(config.model_save_path, config.version)

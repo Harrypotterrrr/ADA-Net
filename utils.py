@@ -35,14 +35,11 @@ def load_value_file(file_path):
 
     return value
 
-def write_log(writer, log_str, step, ds_loss_real, ds_loss_fake, ds_loss, dt_loss_real, dt_loss_fake, dt_loss, g_loss):
+def write_log(writer, log_str, step, total_loss, res_loss, cls_loss, disc_loss):
 
-    writer.add_scalar('data/ds_loss_real', ds_loss_real.item(), step)
-    writer.add_scalar('data/ds_loss_fake', ds_loss_fake.item(), step)
-    writer.add_scalar('data/ds_loss', ds_loss.item(), step)
-    writer.add_scalar('data/dt_loss_real', dt_loss_real.item(), step)
-    writer.add_scalar('data/dt_loss_fake', dt_loss_fake.item(), step)
-    writer.add_scalar('data/dt_loss', dt_loss.item(), step)
-    writer.add_scalar('data/g_loss_fake', g_loss.item(), step)
+    writer.add_scalar('data/total_loss', total_loss.item(), step)
+    writer.add_scalar('data/res_loss', res_loss.item(), step)
+    writer.add_scalar('data/cls_loss', cls_loss.item(), step)
+    writer.add_scalar('data/disc_loss', disc_loss.item(), step)
 
     writer.add_text('logs', log_str, step)

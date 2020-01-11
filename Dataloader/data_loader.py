@@ -2,7 +2,7 @@ import random
 
 from torch.utils.data import DataLoader, SubsetRandomSampler
 import torchvision.datasets as dsets
-from torchvision import transforms
+import torchvision.transforms as transforms
 
 
 transform = transforms.Compose([
@@ -39,8 +39,6 @@ def get_train_loader(cfg):
         num_workers=cfg.num_workers,
         sampler=unlabel_index
     )
-
-
 
     return label_loader, unlabel_loader
 
@@ -98,12 +96,12 @@ if __name__ == '__main__':
     parser.add_argument('--label_num', type=int, default=4000)
     parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10'])
     parser.add_argument('--num_workers', type=int, default=8)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=128)
 
     config = parser.parse_args()
 
     label_loader, unlabel_loader = get_train_loader(config)
     dataiter = iter(label_loader)
-    images, labels = dataiter.next()
-
+    images, targets = dataiter.next()
+    print(images.shape, targets.shape)
     imshow(make_grid(images))
