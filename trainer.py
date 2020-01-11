@@ -11,8 +11,7 @@ from utils import *
 
 
 class Trainer(object):
-    def __init__(self, label_loader, unlabel_loader, config):
-
+    def __init__(self, config, label_loader=None, unlabel_loader=None):
         # Data loader
         self.label_loader = label_loader
         self.unlabel_loader = unlabel_loader

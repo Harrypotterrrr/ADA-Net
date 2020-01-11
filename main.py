@@ -1,11 +1,9 @@
-from trainer import Trainer
-
-import os
-import torch
-
-from utils import *
+from Dataloader.data_loader import get_train_loader, get_test_loader
 from parameter import get_parameters
-from Dataloader.data_loader import get_train_loader
+from utils import *
+
+from trainer import Trainer
+from tester import Tester
 
 def main(config):
 
@@ -13,17 +11,18 @@ def main(config):
         print("="*30,"\nLoading data...")
         label_loader, unlabel_loader = get_train_loader(config)
     else:
-        pass
+        print("="*30,"\nLoading data...")
+        test_loader = get_test_loader(config)
 
     # Create directories if not exist
     make_folder(config.model_save_path, config.version)
     make_folder(config.log_path, config.version)
 
     if config.train:
-        trainer = Trainer(label_loader, unlabel_loader, config)
+        trainer = Trainer(config, label_loader, unlabel_loader)
         trainer.train()
     else:
-        tester = Tester(test_loader, config)
+        tester = Tester(config, test_loader)
         tester.test()
 
 
