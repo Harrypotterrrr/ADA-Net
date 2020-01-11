@@ -29,12 +29,14 @@ def get_parameters():
     parser.add_argument('--lr_decay', type=float, default=0.1)
     parser.add_argument('--weight_decay', type=float, default=0.1e-4)
     parser.add_argument('--momentum', type=float, default=0.9)
+    parser.add_argument('--lambd', type=float, default=1)
+    parser.add_argument('--gamma', type=float, default=1)
 
     # Pretrained setting
     parser.add_argument('--pretrained_model', type=int, default=None)
 
     # Misc
-    parser.add_argument('--use_tensorboard', type=str2bool, default=False)
+    parser.add_argument('--use_tensorboard', type=str2bool, default=True)
     parser.add_argument('--test_batch_size', type=int, default=8, help='how large batchsize for test')
     parser.add_argument('--num_workers', type=int, default=8)
 

@@ -35,6 +35,8 @@ class Trainer(object):
         self.lr_decay = config.lr_decay
         self.momentum = config.momentum
         self.weight_decay = config.weight_decay
+        self.lambd = config.lambd
+        self.gamma = config.gamma
 
         # Pretrained setting
         self.pretrained_model = config.pretrained_model
@@ -52,6 +54,9 @@ class Trainer(object):
         self.device, self.parallel, self.gpus = set_device(config)
 
         self.build_model()
+        self.beta_distr = Beta(torch.tensor([1.0]), torch.tensor([1.0]))
+        self.cross_entropy = nn.CrossEntropyLoss()
+        self.kl_divergence = nn.KLDivLoss()
 
         if self.use_tensorboard:
             self.build_tensorboard()
@@ -61,37 +66,35 @@ class Trainer(object):
             print('load_pretrained_model...')
             self.load_pretrained_model()
 
-        self.beta_distr = Beta(torch.tensor([1.0]), torch.tensor([1.0]))
 
     def build_opt_schr(self):
 
         self.optimizer = torch.optim.SGD(
-            [{'resnet': self.resnet.parameters()},
-             {'classifier': self.classifier.parameters()},
-             {'discriminator': self.disc.parameters()}],
+            [{'params': self.resnet.parameters()},
+             {'params': self.classifier.parameters()},
+             {'params': self.disc.parameters()}],
             lr = self.lr,
             momentum=self.momentum,
             weight_decay=self.weight_decay
         )
 
         if self.lr_schr == 'multi': # TODO
-            self.lr_scher = MultiStepLR(self.optimizer, [self.total_num*0.5, self.total_num*0.75], gamma=self.lr_decay)
+            self.lr_scher = MultiStepLR(self.optimizer, [self.total_step*0.5, self.total_step*0.75], gamma=self.lr_decay)
 
     def epoch2step(self):
 
         self.epoch = 0
-        step_per_epoch = len(self.label_loader)
-        print("steps per epoch:", step_per_epoch)
+        self.step_per_epoch = len(self.label_loader)
+        print("steps per epoch:", self.step_per_epoch)
 
-        self.total_step = self.total_epoch * step_per_epoch
-        self.log_step = self.log_epoch * step_per_epoch
-        self.sample_step = self.sample_epoch * step_per_epoch
-        self.model_save_step = self.model_save_epoch * step_per_epoch
+        self.total_step = self.total_epoch * self.step_per_epoch
+        self.log_step = self.log_epoch * self.step_per_epoch
+        self.sample_step = self.sample_epoch * self.step_per_epoch
+        self.model_save_step = self.model_save_epoch * self.step_per_epoch
 
     def sample_augment(self, label_img, label_gt, unlabel_img, unlabel_pesudo):
         assert label_img.shape == unlabel_img.shape
         assert label_img.shape.__len__() == 4
-        # assert one_hot(label_onehot) and simplex(unlabeled_pred)
         assert label_gt.shape == unlabel_pesudo.shape
 
         bs, *shape = label_img.shape
@@ -99,6 +102,7 @@ class Trainer(object):
         _alpha = alpha.view(bs, 1, 1, 1).repeat(1, *shape)
         assert _alpha.shape == label_img.shape
         inter_img = label_img * _alpha + unlabel_img * (1-_alpha)
+        a = label_gt * alpha
         inter_img_gt = label_gt * alpha + unlabel_pesudo * (1-alpha)
         inter_true = torch.stack([alpha, 1-alpha], dim=1).to(self.device)
 
@@ -125,21 +129,19 @@ class Trainer(object):
         print("=" * 30, "\nStart training...")
         start_time = time.time()
 
-        self.resnet.train()
-        self.classifier.train()
-        self.disc.train()
-
         for step in range(start, self.total_step + 1):
+
             try:
-                label_img, label_gt, unlabel_img, _ = label_iter.next(), unlabel_iter.next()
+                (label_img, label_gt), (unlabel_img, _) = label_iter.next(), unlabel_iter.next()
             except:
                 label_iter = iter(self.label_loader)
                 unlabel_iter = iter(self.unlabel_loader)
-                label_img, label_gt, unlabel_img, _ = label_iter.next(), unlabel_iter.next()
+                (label_img, label_gt), (unlabel_img, _) = label_iter.next(), unlabel_iter.next()
 
                 self.epoch += 1
 
             label_img = label_img.to(self.device)
+            # label_gt = F.one_hot(label_gt).to(self.device)
             label_gt = label_gt.to(self.device)
             unlabel_img = unlabel_img.to(self.device)
 
@@ -147,9 +149,10 @@ class Trainer(object):
             label_feature = self.resnet(label_img)
             label_pred = self.classifier(label_feature)
 
-            res_loss = self.cross_entro(label_pred, label_gt)
+            res_loss = self.cross_entropy(label_pred, label_gt)
 
-            self.resnet.eval()
+            # ============= Generate real video ============== #
+            self.resnet.eval() # combine TODO
             self.classifier.eval()
             unlabel_feature = self.resnet(unlabel_img)
             unlabel_img_pseudo = self.classifier(unlabel_feature)
@@ -157,22 +160,20 @@ class Trainer(object):
             # ============= mix ============== #
             self.resnet.train()
             self.classifier.train()
-            inter_img, inter_img_gt, inter_img_true = self.sample_augment(label_img, label_gt, unlabel_img, unlabel_img_pseudo)
+            self.disc.train()
+            inter_img, inter_img_gt, inter_img_true = self.sample_augment(label_img, F.one_hot(label_gt).float(), unlabel_img, unlabel_img_pseudo)
             inter_feature = self.resnet(inter_img)
             inter_img_pred = self.classifier(inter_feature)
             inter_img_false = self.disc(inter_feature)
 
-            cls_loss = self.KL_div(inter_img_pred, inter_img_gt) # TODO
-            disc_loss = self.KL_div(inter_img_false, inter_img_true) # TODO
+            cls_loss = self.kl_divergence(inter_img_pred, inter_img_gt) # TODO
+            disc_loss = self.kl_divergence(inter_img_false, inter_img_true) # TODO
 
-            total_loss = res_loss + self.lamb * (cls_loss + disc_loss)
+            total_loss = self.lambd * res_loss + self.gamma * (cls_loss + disc_loss) # TODO
             self.reset_grad()
             total_loss.backward()
             self.optimizer.step()
-
-            self.r_lr_scher.step()
-            self.c_lr_scher.step()
-            self.d_lr_scher.step()
+            self.lr_scher.step()
 
             # ==================== print & save part ==================== #
             # Print out log info
@@ -247,9 +248,7 @@ class Trainer(object):
         print('loaded trained models (step: {})..!'.format(self.pretrained_model))
 
     def reset_grad(self):
-        self.ds_optimizer.zero_grad()
-        self.dt_optimizer.zero_grad()
-        self.g_optimizer.zero_grad()
+        self.optimizer.zero_grad()
 
     def save_sample(self, data_iter):
         real_images, _ = next(data_iter)
