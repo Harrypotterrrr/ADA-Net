@@ -9,15 +9,13 @@ class identical(nn.Module):
         return input
 
 class GradReverseLayer(Function):
-    def __init__(self, lambd):
-        assert lambd >= 0
-        self.lambd = lambd
-
-    def forward(self, x):
+    @staticmethod
+    def forward(ctx, x):
         return x.view_as(x)
 
-    def backward(self, grad_output):
-        return (grad_output * -self.lambd)
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.neg()
 
 class Classifier(nn.Module):
     def __init__(self, input_dim=128, num_class=10, top_bn=False):
@@ -49,7 +47,7 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, x):
-        x = GradReverseLayer(self.lambd)(x)
+        x = GradReverseLayer.apply(x)
         out = self.discriminator(x)
         return out
 
