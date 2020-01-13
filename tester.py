@@ -56,6 +56,7 @@ class Tester():
     def test(self):
 
         test_loader = iter(self.test_loader)
+        print(len(self.test_loader))
 
         self.resnet.eval()
         self.classifier.eval()
@@ -72,11 +73,11 @@ class Tester():
             feature = self.resnet(test_img)
             pred = self.classifier(feature)
             pred, indices = torch.max(pred, dim=1)
-            tag = self.disc(feature)
+            # tag = self.disc(feature)
 
             ctr += torch.sum(indices == test_gt)
 
-        print("correct prediction: ", ctr)
-        print("acc: %.2f%%" % (ctr / 50000. * 100))
+        print("correct prediction: ", ctr.item())
+        print("acc: %.2f%%" % (ctr.float() / len(test_loader.dataset) * 100))
 
 

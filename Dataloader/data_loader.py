@@ -45,10 +45,10 @@ def get_train_loader(cfg):
 
 def get_validation_loader(cfg):
     assert cfg.dataset in ['cifar10', ]
-    if cfg.dataset == 'kinetics':
+    if cfg.dataset == 'cifar10':
         val_data = dsets.CIFAR10(
             cfg.image_path,
-            train=True,
+            train=False,
             transform=transform,
         )
     val_loader = DataLoader(
@@ -61,10 +61,10 @@ def get_validation_loader(cfg):
 
 def get_test_loader(cfg):
     assert cfg.dataset in ['cifar10', ]
-    if cfg.dataset == 'kinetics':
+    if cfg.dataset == 'cifar10':
         test_data = dsets.CIFAR10(
             cfg.image_path,
-            train=True,
+            train=False,
             transform=transform,
         )
     test_loader = DataLoader(

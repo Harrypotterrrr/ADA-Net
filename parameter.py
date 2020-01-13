@@ -20,7 +20,6 @@ def get_parameters():
 
     parser.add_argument('--total_epoch', type=int, default=300, help='how many times to update the generator')
     parser.add_argument('--log_epoch', type=int, default=1)
-    parser.add_argument('--sample_epoch', type=int, default=1)
     parser.add_argument('--model_save_epoch', type=int, default=50)
 
     parser.add_argument('--batch_size', type=int, default=128)
@@ -44,7 +43,6 @@ def get_parameters():
     parser.add_argument('--image_path', type=str, default='./data')
     parser.add_argument('--log_path', type=str, default='./logs')
     parser.add_argument('--model_save_path', type=str, default='./models')
-    parser.add_argument('--sample_path', type=str, default='./samples')
 
 
     config = parser.parse_args()

@@ -25,7 +25,6 @@ class Trainer(object):
 
         # Epoch size
         self.log_epoch = config.log_epoch
-        self.sample_epoch = config.sample_epoch
         self.model_save_epoch = config.model_save_epoch
 
         # Training setting
@@ -47,7 +46,6 @@ class Trainer(object):
 
         # Path
         self.log_path = os.path.join(config.log_path, self.version)
-        self.sample_path = os.path.join(config.sample_path, self.version)
         self.model_save_path = os.path.join(config.model_save_path, self.version)
 
         # Set GPU
@@ -95,7 +93,6 @@ class Trainer(object):
 
         self.total_step = self.total_epoch * self.step_per_epoch
         self.log_step = self.log_epoch * self.step_per_epoch
-        self.sample_step = self.sample_epoch * self.step_per_epoch
         self.model_save_step = self.model_save_epoch * self.step_per_epoch
 
     def sample_augment(self, label_img, label_gt, unlabel_img, unlabel_pesudo):
@@ -117,6 +114,32 @@ class Trainer(object):
         assert inter_true.shape[0] == bs
 
         return inter_img, inter_img_tar, inter_true
+
+    def validate(self, iter):
+        val_img, val_gt = iter.next()
+        val_img = val_img.to(self.device)
+        val_gt = val_gt.to(self.device)
+
+        self.resnet.eval()
+        self.classifier.eval()
+
+        feature = self.resnet(val_img)
+        val_pred = self.classifier(feature)
+        val_pred, indices = torch.max(val_pred, dim=1)
+
+        acc = np.mean((indices == val_gt).cpu().numpy())
+
+        # for i in range(self.n_class):
+        #     for j in range(self.test_batch_size):
+        #         if self.use_tensorboard is True:
+        #             self.writer.add_image("Class_%d_No.%d/Step_%d" % (i, j, step), make_grid(denorm(fake_videos[i * self.test_batch_size + j].data)), step)
+        #         else:
+        #             save_image(denorm(fake_videos[i * self.test_batch_size + j].data), os.path.join(self.sample_path, "Class_%d_No.%d_Step_%d" % (i, j, step)))
+        # print('Saved sample images {}_fake.png'.format(step))
+        self.resnet.train()
+        self.classifier.train()
+
+        return acc
 
     def train(self):
 
@@ -189,38 +212,14 @@ class Trainer(object):
                 elapsed = time.time() - start_time
                 elapsed = str(datetime.timedelta(seconds=elapsed))
                 start_time = time.time()
-                log_str = "Epoch: [%d/%d], Step: [%d/%d], time: %s, total_loss: %.4f, res_loss: %.4f, cls_loss: %.4f, disc_loss: %.4f, lr: %.2e" % \
-                    (self.epoch, self.total_epoch, step, self.total_step, elapsed, total_loss, res_loss.item(), cls_loss.item(), disc_loss.item(), self.lr_scher.get_lr()[0])
+                acc = self.validate(unlabel_iter)
+                log_str = "Epoch: [%d/%d], Step: [%d/%d], time: %s, acc: %f%%, total_loss: %.4f, res_loss: %.4f, cls_loss: %.4f, disc_loss: %.4f, lr: %.2e" % \
+                    (self.epoch, self.total_epoch, step, self.total_step, elapsed, acc * 100, \
+                     total_loss, res_loss.item(), cls_loss.item(), disc_loss.item(), self.lr_scher.get_lr()[0])
 
                 if self.use_tensorboard is True:
-                    write_log(self.writer, log_str, step, total_loss, res_loss, cls_loss, disc_loss)
+                    write_log(self.writer, log_str, step, acc, total_loss, res_loss, cls_loss, disc_loss)
                 print(log_str)
-
-            # Sample images
-            if step % self.sample_step == 0:
-                val_img, val_gt = label_iter.next()
-                val_img = val_img.to(self.device)
-                val_gt = val_gt.to(self.device)
-
-                self.resnet.eval()
-                self.classifier.eval()
-
-                feature = self.resnet(val_img)
-                val_pred = self.classifier(feature)
-                val_pred, indices = torch.max(val_pred, dim=1)
-
-                acc = np.mean((indices == val_gt).cpu().numpy())
-                print("accuracy:", acc)
-
-                # for i in range(self.n_class):
-                #     for j in range(self.test_batch_size):
-                #         if self.use_tensorboard is True:
-                #             self.writer.add_image("Class_%d_No.%d/Step_%d" % (i, j, step), make_grid(denorm(fake_videos[i * self.test_batch_size + j].data)), step)
-                #         else:
-                #             save_image(denorm(fake_videos[i * self.test_batch_size + j].data), os.path.join(self.sample_path, "Class_%d_No.%d_Step_%d" % (i, j, step)))
-                # print('Saved sample images {}_fake.png'.format(step))
-                self.resnet.train()
-                self.classifier.train()
 
             # Save model
             if step % self.model_save_step == 0:
