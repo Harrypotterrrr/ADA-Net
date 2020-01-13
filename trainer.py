@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.distributions import Beta
 from torch.optim.lr_scheduler import MultiStepLR
 from torchvision.utils import save_image, make_grid
+import numpy as np
 
 from Module.arch import ResNet, Discriminator, Classifier
 from utils import *
@@ -70,7 +71,7 @@ class Trainer(object):
 
         self.beta_distr = Beta(torch.tensor([1.0]), torch.tensor([1.0]))
         self.cross_entropy = nn.CrossEntropyLoss()
-        self.kl_divergence = nn.KLDivLoss(reduction='batchmean')
+        self.kl_divergence = nn.KLDivLoss(reduction='mean')
 
     def build_opt_schr(self):
 
@@ -108,14 +109,14 @@ class Trainer(object):
         assert _alpha.shape == label_img.shape
         inter_img = label_img * _alpha + unlabel_img * (1-_alpha)
         a = label_gt * alpha
-        inter_img_gt = label_gt * alpha + unlabel_pesudo * (1-alpha)
+        inter_img_tar = label_gt * alpha + unlabel_pesudo * (1-alpha)
         inter_true = torch.stack([alpha, 1-alpha], dim=1).squeeze(2).to(self.device)
 
         assert inter_img.shape == label_img.shape
-        assert inter_img_gt.shape == label_gt.shape
+        assert inter_img_tar.shape == label_gt.shape
         assert inter_true.shape[0] == bs
 
-        return inter_img, inter_img_gt, inter_true
+        return inter_img, inter_img_tar, inter_true
 
     def train(self):
 
@@ -167,14 +168,14 @@ class Trainer(object):
             self.resnet.train()
             self.classifier.train()
             self.disc.train()
-            inter_img, inter_img_gt, inter_img_true = self.sample_augment(label_img, F.one_hot(label_gt).float(), unlabel_img, unlabel_img_pseudo)
+            inter_img, inter_img_tar, inter_img_true = self.sample_augment(label_img, F.one_hot(label_gt).float(), unlabel_img, unlabel_img_pseudo)
             inter_feature = self.resnet(inter_img)
             inter_img_pred = self.classifier(inter_feature)
             inter_img_false = self.disc(inter_feature)
 
-            cls_loss = self.kl_divergence(inter_img_pred, inter_img_gt) # TODO
-            disc_loss = self.kl_divergence(inter_img_false, inter_img_true) # TODO
 
+            cls_loss = self.kl_divergence(inter_img_pred, inter_img_tar) # TODO
+            disc_loss = self.kl_divergence(inter_img_false, inter_img_true) # TODO
             total_loss = self.lambd * res_loss + self.gamma * (cls_loss + disc_loss) # TODO
             self.reset_grad()
             total_loss.backward()
@@ -194,19 +195,31 @@ class Trainer(object):
                     write_log(self.writer, log_str, step, total_loss, res_loss, cls_loss, disc_loss)
                 print(log_str)
 
-            # # Sample images
-            # if step % self.sample_step == 0:
-            #     self.G.eval()
-            #     fake_videos = self.G(fixed_z, fixed_label)
-            #
-            #     for i in range(self.n_class):
-            #         for j in range(self.test_batch_size):
-            #             if self.use_tensorboard is True:
-            #                 self.writer.add_image("Class_%d_No.%d/Step_%d" % (i, j, step), make_grid(denorm(fake_videos[i * self.test_batch_size + j].data)), step)
-            #             else:
-            #                 save_image(denorm(fake_videos[i * self.test_batch_size + j].data), os.path.join(self.sample_path, "Class_%d_No.%d_Step_%d" % (i, j, step)))
-            #     # print('Saved sample images {}_fake.png'.format(step))
-            #     self.G.train()
+            # Sample images
+            if step % self.sample_step == 0:
+                val_img, val_gt = label_iter.next()
+                val_img = val_img.to(self.device)
+                val_gt = val_gt.to(self.device)
+
+                self.resnet.eval()
+                self.classifier.eval()
+
+                feature = self.resnet(val_img)
+                val_pred = self.classifier(feature)
+                val_pred, indices = torch.max(val_pred, dim=1)
+
+                acc = np.mean((indices == val_gt).cpu().numpy())
+                print("accuracy:", acc)
+
+                # for i in range(self.n_class):
+                #     for j in range(self.test_batch_size):
+                #         if self.use_tensorboard is True:
+                #             self.writer.add_image("Class_%d_No.%d/Step_%d" % (i, j, step), make_grid(denorm(fake_videos[i * self.test_batch_size + j].data)), step)
+                #         else:
+                #             save_image(denorm(fake_videos[i * self.test_batch_size + j].data), os.path.join(self.sample_path, "Class_%d_No.%d_Step_%d" % (i, j, step)))
+                # print('Saved sample images {}_fake.png'.format(step))
+                self.resnet.train()
+                self.classifier.train()
 
             # Save model
             if step % self.model_save_step == 0:

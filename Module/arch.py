@@ -29,7 +29,7 @@ class Classifier(nn.Module):
         out = self.fc(x)
         if self.top_bn:
             out = self.top_bn_layer(out)
-        out = F.softmax(out, 1) # regularization TODO
+        out = F.softmax(out, 1) # regularization
         return out
 
 class Discriminator(nn.Module):
@@ -43,7 +43,7 @@ class Discriminator(nn.Module):
             nn.Linear(1024, 1024),
             nn.ReLU(inplace=True),
             nn.Linear(1024, 2),
-            nn.Softmax(dim=1)
+            nn.Softmax(dim=1) # regularization
         )
 
     def forward(self, x):

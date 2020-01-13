@@ -63,7 +63,7 @@ class Tester():
 
         print("=" * 30, "\nStart testing...")
 
-        ctr = torch.Tensor([0.]).to(self.device)
+        ctr = torch.tensor(0).to(self.device)
 
         for i, (test_img, test_gt) in enumerate(test_loader):
             test_img = test_img.to(self.device)
@@ -74,11 +74,9 @@ class Tester():
             pred, indices = torch.max(pred, dim=1)
             tag = self.disc(feature)
 
-            for i in range(len(indices)):
-                if indices[i] == test_gt[i]:
-                    ctr += 1
-            # ctr += sum(indices == test_gt)
-        print("correct prediction: ", ctr[0].item)
-        print("acc: %.2f%%" % (ctr[0].item() / 50000. * 100))
+            ctr += torch.sum(indices == test_gt)
+
+        print("correct prediction: ", ctr)
+        print("acc: %.2f%%" % (ctr / 50000. * 100))
 
 
