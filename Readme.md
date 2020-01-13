@@ -6,7 +6,7 @@ This repo is a pytorch implementation of [*Semi-Supervised Learning by Augmented
 | **Package**    | **version**  |
 |----------------|--------------|
 | python         |  >=3.5       |
-| pytorch        |  1.2        |
+| pytorch        |  1.2         |
 | numpy          |  1.17.2      |
 | tensorboardX   |  2.0         |
 
@@ -24,6 +24,8 @@ chmod u+x scripts/train_model.sh
 chmod u+x scripts/test_model.sh
 ./scripts/test_model.sh local
 ```
+
+## New script: See `run.sh`
 
 ## Acknowlegement
 

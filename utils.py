@@ -1,46 +1,74 @@
-import os
+import os, logging, shutil
+from os.path import exists, join
 import torch
-from torch.nn import init
-import torch.nn.functional as F
 
-def make_folder(path, version):
-    if not os.path.exists(os.path.join(path, version)):
-        os.makedirs(os.path.join(path, version))
+def make_folder(path):
+    if not exists(path):
+        os.makedirs(path)
 
-def set_device(config):
-
-    if config.gpus == "": # cpu
+def set_device(gpus, parallel):
+    if gpus == "" or not torch.cuda.is_available(): # cpu
         return 'cpu', False, ""
     else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(config.gpus)
+        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(gpus)
+        gpus = list(range(len(gpus)))
+        if parallel is True and len(gpus) > 1: # multi gpus
+            return 'cuda:0', True, gpus
+        else: # single gpu
+            return 'cuda:'+ str(gpus[0]), False, gpus
 
-        if torch.cuda.is_available() is False: # cpu
-            return 'cpu', False, ""
-        else:
-            # gpus = config.gpus.split(',') # if config.gpus is a list
-            # gpus = (',').join(list(map(str, range(0, len(gpus))))) # generate a list of string number from 0 to len(config.gpus)
-            gpus = list(range(len(config.gpus)))
-            if config.parallel is True and len(gpus) > 1: # multi gpus
-                return 'cuda:0', True, gpus
-            else: # single gpu
-                return 'cuda:'+ str(gpus[0]), False, gpus
+class Logger():
+    def __init__(self, path="log.txt"):
+        self.logger = logging.getLogger("Logger")
+        self.file_handler = logging.FileHandler(path, "w")
+        self.stdout_handler = logging.StreamHandler()
+        self.logger.addHandler(self.file_handler)
+        self.logger.addHandler(self.stdout_handler)
+        self.stdout_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+        self.file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+        self.logger.setLevel(logging.INFO)
+    
+    def info(self, txt):
+        self.logger.info(txt)
+    
+    def close(self):
+        self.file_handler.close()
+        self.stdout_handler.close()
 
-def denorm(x):
-    out = (x + 1) / 2
-    return out.clamp_(0, 1)
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
 
-def load_value_file(file_path):
-    with open(file_path, 'r') as input_file:
-        value = float(input_file.read().rstrip('\n\r'))
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
 
-    return value
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
-def write_log(writer, log_str, step, acc, total_loss, res_loss, cls_loss, disc_loss):
+def save_checkpoint(state, is_best, path, filename="checkpoint.pth"):
+    torch.save(state, join(path, filename))
+    if is_best:
+        shutil.copyfile(join(path, filename), join(path, 'model_best.pth'))
 
-    writer.add_scalar('data/acc', acc, step)
-    writer.add_scalar('data/total_loss', total_loss.item(), step)
-    writer.add_scalar('data/res_loss', res_loss.item(), step)
-    writer.add_scalar('data/cls_loss', cls_loss.item(), step)
-    writer.add_scalar('data/disc_loss', disc_loss.item(), step)
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
 
-    writer.add_text('log/text', log_str, step)
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
