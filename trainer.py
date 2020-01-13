@@ -71,7 +71,7 @@ class Trainer(object):
 
         self.beta_distr = Beta(torch.tensor([1.0]), torch.tensor([1.0]))
         self.cross_entropy = nn.CrossEntropyLoss()
-        self.kl_divergence = nn.KLDivLoss(reduction='mean')
+        self.kl_divergence = nn.KLDivLoss(reduction='batchmean')
 
     def build_opt_schr(self):
 
@@ -174,9 +174,10 @@ class Trainer(object):
             inter_img_false = self.disc(inter_feature)
 
 
-            cls_loss = self.kl_divergence(inter_img_pred, inter_img_tar) # TODO
-            disc_loss = self.kl_divergence(inter_img_false, inter_img_true) # TODO
-            total_loss = self.lambd * res_loss + self.gamma * (cls_loss + disc_loss) # TODO
+            cls_loss = self.kl_divergence(inter_img_pred.log(), inter_img_tar) # IMPORTANT log is necessary for torch kl
+            disc_loss = self.kl_divergence(inter_img_false.log(), inter_img_true)
+
+            total_loss = self.lambd * res_loss + self.gamma * (cls_loss + disc_loss)
             self.reset_grad()
             total_loss.backward()
             self.optimizer.step()
