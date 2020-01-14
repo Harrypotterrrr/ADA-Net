@@ -48,6 +48,7 @@ logger.info(args)
 
 # Set device
 args.device, args.parallel, args.gpus = set_device(args.gpus, args.parallel)
+torch.backends.cudnn.benchmark = True
 
 # Define dataloader
 logger.info("Loading data...")
@@ -233,3 +234,5 @@ def test():
 
 # Train and evaluate the model
 main()
+writer.close()
+logger.close()

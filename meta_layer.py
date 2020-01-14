@@ -5,12 +5,77 @@ class MetaLinear(nn.Linear):
     def __init__(self, *args, **kwargs):
         super(MetaLinear, self).__init__(*args, **kwargs)
         
+    def meta_forward(self, x, inner_lr):
+        return F.linear(x, self.weight.data - inner_lr * self.weight.grad,
+                        bias=self.bias.data - inner_lr * self.bias.grad if self.bias is not None else None)
+           
+class MetaConv2d(nn.Conv2d):
+    def __init__(self, *args, **kwargs):
+        super(MetaConv2d, self).__init__(*args, **kwargs)
+        
+    def meta_forward(self, x, inner_lr):
+        return F.conv2d(x, self.weight.data - inner_lr * self.weight.grad,
+                        bias=self.bias.data - inner_lr * self.bias.grad if self.bias is not None else None,
+                        stride=self.stride, padding=self.padding, dilation=self.dilation,
+                        groups=self.groups)
+
+class MetaConvTranspose2d(nn.ConvTranspose2d):
+    def __init__(self, *args, **kwargs):
+        super(MetaConvTranspose2d, self).__init__(*args, **kwargs)
+        
+    def meta_forward(self, x, inner_lr, output_size=None):
+        # type: (Tensor, Optional[List[int]]) -> Tensor
+        if self.padding_mode != 'zeros':
+            raise ValueError('Only `zeros` padding mode is supported for ConvTranspose2d')
+        output_padding = self._output_padding(x, output_size, self.stride, self.padding, self.kernel_size)
+        return F.conv_transpose2d(x, self.weight.data - inner_lr * self.weight.grad,
+                                  bias=self.bias.data - inner_lr * self.bias.grad if self.bias is not None else None,
+                                  stride=self.stride, padding=self.padding, output_padding=output_padding,
+                                  groups=self.groups, dilation=self.dilation)        
+       
+class MetaBatchNorm2d(nn.BatchNorm2d):
+    def __init__(self, *args, **kwargs):
+        super(MetaBatchNorm2d, self).__init__(*args, **kwargs)
+    
+    def meta_forward(self, x, inner_lr):
+        return F.batch_norm(x, self.running_mean, self.running_var,
+                            self.weight.data - inner_lr * self.weight.grad if self.weight is not None else None,
+                            self.bias.data - inner_lr * self.bias.grad if self.bias is not None else None,
+                            training=True, momentum=0., eps=self.eps)
+
+class MetaBatchNorm1d(nn.BatchNorm1d):
+    def __init__(self, *args, **kwargs):
+        super(MetaBatchNorm1d, self).__init__(*args, **kwargs)
+    
+    def meta_forward(self, x, inner_lr):
+        return F.batch_norm(x, self.running_mean, self.running_var,
+                            self.weight.data - inner_lr * self.weight.grad if self.weight is not None else None,
+                            self.bias.data - inner_lr * self.bias.grad if self.bias is not None else None,
+                            training=True, momentum=0., eps=self.eps)
+
+class MetaSequential(nn.Sequential):
+    def __init__(self, *args, **kwargs):
+        super(MetaSequential, self).__init__(*args, **kwargs)
+    
+    def meta_forward(self, x, inner_lr):
+        for module in self._modules.values():
+            if hasattr(module, "meta_forward"):
+                x = module.meta_forward(x, inner_lr)
+            else:
+                x = module(x)
+        return x
+
+"""
+class MetaLinear(nn.Linear):
+    def __init__(self, *args, **kwargs):
+        super(MetaLinear, self).__init__(*args, **kwargs)
+        
     def forward(self, x, inner_lr=None):
         if inner_lr is None:
             return F.linear(x, self.weight, self.bias)
         else:
             return F.linear(x, self.weight.data-inner_lr*self.weight.grad,
-                            bias=self.bias-inner_lr*self.bias.grad if self.bias is not None else None)
+                            bias=self.bias.data-inner_lr*self.bias.grad if self.bias is not None else None)
            
 class MetaConv2d(nn.Conv2d):
     def __init__(self, *args, **kwargs):
@@ -22,7 +87,7 @@ class MetaConv2d(nn.Conv2d):
                             self.padding, self.dilation, self.groups)
         else:
             return F.conv2d(x, self.weight.data-inner_lr*self.weight.grad,
-                            bias=self.bias-inner_lr*self.bias.grad if self.bias is not None else None,
+                            bias=self.bias.data-inner_lr*self.bias.grad if self.bias is not None else None,
                             stride=self.stride, padding=self.padding, dilation=self.dilation,
                             groups=self.groups)
 
@@ -40,7 +105,7 @@ class MetaConvTranspose2d(nn.ConvTranspose2d):
                                       output_padding, self.groups, self.dilation)
         else:
             return F.conv_transpose2d(x, self.weight.data-inner_lr*self.weight.grad,
-                                      bias=self.bias-inner_lr*self.bias.grad if self.bias is not None else None,
+                                      bias=self.bias.data-inner_lr*self.bias.grad if self.bias is not None else None,
                                       stride=self.stride, padding=self.padding, output_padding=output_padding,
                                       groups=self.groups, dilation=self.dilation)        
        
@@ -116,3 +181,4 @@ class MetaSequential(nn.Sequential):
             else:
                 x = module(x)
         return x
+"""

@@ -28,11 +28,25 @@ class Classifier(nn.Module):
         if self.top_bn:
             self.top_bn_layer = MetaBatchNorm1d(num_class)
 
+    def forward(self, x):
+        out = self.fc(x)
+        if self.top_bn:
+            out = self.top_bn_layer(out)
+        return out
+    
+    def meta_forward(self, x, inner_lr):
+        out = self.fc.meta_forward(x, inner_lr)
+        if self.top_bn:
+            out = self.top_bn_layer.meta_forward(out, inner_lr)
+        return out
+
+    """
     def forward(self, x, inner_lr=None):
         out = self.fc(x, inner_lr)
         if self.top_bn:
             out = self.top_bn_layer(out, inner_lr)
         return out
+    """
 
 class Discriminator(nn.Module):
     def __init__(self, input_dim=128):
@@ -80,6 +94,47 @@ class ConvLarge(nn.Module):
                 nn.LeakyReLU(inplace=True, negative_slope=lrelu_slope) # inplace conf TODO
                 )
 
+    def forward(self, x):
+        out = self.block1(x)
+        out = self.block2(out)
+        out = self.block3(out)
+        out = self.max_pool(out)
+
+        out = self.block4(out)
+        out = self.block5(out)
+        out = self.block6(out)
+        out = self.max_pool(out)
+
+        out = self.block7(out)
+        out = self.block8(out)
+        out = self.block9(out)
+
+        feature = self.AveragePooling(out)
+        feature = feature.view(feature.shape[0], -1)
+
+        return feature
+    
+    def meta_forward(self, x, inner_lr):
+        out = self.block1.meta_forward(x, inner_lr)
+        out = self.block2.meta_forward(out, inner_lr)
+        out = self.block3.meta_forward(out, inner_lr)
+        out = self.max_pool(out)
+
+        out = self.block4.meta_forward(out, inner_lr)
+        out = self.block5.meta_forward(out, inner_lr)
+        out = self.block6.meta_forward(out, inner_lr)
+        out = self.max_pool(out)
+
+        out = self.block7.meta_forward(out, inner_lr)
+        out = self.block8.meta_forward(out, inner_lr)
+        out = self.block9.meta_forward(out, inner_lr)
+
+        feature = self.AveragePooling(out)
+        feature = feature.view(feature.shape[0], -1)
+
+        return feature
+
+    """
     def forward(self, x, inner_lr=None):
         out = self.block1(x, inner_lr)
         out = self.block2(out, inner_lr)
@@ -99,7 +154,7 @@ class ConvLarge(nn.Module):
         feature = feature.view(feature.shape[0], -1)
 
         return feature
-
+    """
 
 class SimpleNet(nn.Module):
 

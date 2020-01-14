@@ -16,8 +16,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--num_label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
 # Training setting
-parser.add_argument('--parallel', action='store_false', help='Use DataParallel')
-parser.add_argument('-g', '--gpus', default=['0', '1'], nargs='+', type=str, help='Specify GPU ids.')
+parser.add_argument('--parallel', action='store_true', help='Use DataParallel')
+parser.add_argument('-g', '--gpus', default=['0'], nargs='+', type=str, help='Specify GPU ids.')
 parser.add_argument('--total_steps', type=int, default=120000, help='Total training epochs')
 parser.add_argument('--start_step', type=int, default=0, help='Start step (for resume)')
 parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
@@ -31,11 +31,11 @@ parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SG
 parser.add_argument('--num_workers', type=int, default=8, help='Number of workers')
 parser.add_argument('--resume', type=str, default=None, help='Resume model from a checkpoint')
 # Misc
-parser.add_argument('--print_freq', type=int, default=50, help='Print and log frequency')
+parser.add_argument('--print_freq', type=int, default=1, help='Print and log frequency')
 parser.add_argument('--test_freq', type=int, default=400, help='Test frequency')
 # Path
 parser.add_argument('--data_path', type=str, default='./data', help='Data path')
-parser.add_argument('--save_path', type=str, default='./results', help='Save path')
+parser.add_argument('--save_path', type=str, default='./results/tmp', help='Save path')
 
 args = parser.parse_args()
 
@@ -108,19 +108,20 @@ def main():
         # Compute the inner learning rate
         args.inner_lr = args.lr * args.multiplier if args.fix_inner \
                         else optimizer.param_groups[0]['lr'] * args.multiplier
-        
+        lr = optimizer.param_groups[0]['lr']
         
         # Forward the unlabel data and perform a backward pass with grad
         unlabel_pred = classifier(model(unlabel_img))
         unlabel_pseudo_gt = F.softmax(unlabel_pred, dim=1).detach()
         unlabel_pseudo_gt.requires_grad = True
-        loss1 = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+        loss1 = torch.sum(F.log_softmax(unlabel_pred, dim=1) * unlabel_pseudo_gt) / unlabel_img.size(0)
+        # loss1 = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
         loss1.backward(create_graph=True)
         
         # Forward the label data with the (pseudo-)updated params and compute grad of `unlabel_pseudo_gt`
-        label_pred = classifier(model(label_img, args.inner_lr), args.inner_lr)
+        label_pred = classifier.meta_forward(model.meta_forward(label_img, lr), lr)
         loss2 = F.cross_entropy(label_pred, label_gt, reduction='mean')
-        unlabel_grad, = torch.autograd.grad(loss2, (unlabel_pseudo_gt, ), retain_graph=False, create_graph=False, only_inputs=True)
+        unlabel_grad, = torch.autograd.grad(loss2, (unlabel_pseudo_gt, ), only_inputs=True)
         
         # Update `unlabel_pseudo_gt`
         unlabel_pseudo_gt.requires_grad = False
@@ -128,10 +129,10 @@ def main():
             unlabel_pseudo_gt -= args.inner_lr * unlabel_grad
             ### TODO: try several alternatives
             if args.type == '0':
-                torch.clamp(unlabel_pseudo_gt, min=0., max=1., out=unlabel_pseudo_gt)
+                torch.relu_(unlabel_pseudo_gt)
                 unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
             elif args.type == '1':
-                torch.relu_(unlabel_pseudo_gt)
+                torch.clamp(unlabel_pseudo_gt, min=0., max=1., out=unlabel_pseudo_gt)
                 unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
             elif args.type == '2':
                 torch.relu_(unlabel_pseudo_gt)
@@ -140,7 +141,7 @@ def main():
         # unlabel_pred = classifier(model(unlabel_img))
         loss = F.kl_div(torch.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt.detach(), reduction='batchmean')
         
-        ###
+        ### Baseline
         # label_pred = classifier(model(label_img)) 
         # loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
         ###
@@ -151,9 +152,9 @@ def main():
         optimizer.step()
         lr_scheduler.step()
         
-        ###
-        print(time.time() - data_end)
-        continue
+        ### Show batch-time
+        # print(time.time() - data_end)
+        # continue
         ###
 
         # Compute accuracy
@@ -183,7 +184,7 @@ def main():
                         "(avg {llosses.avg:.3f}) unlabel-loss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
                         "label-acc: {label.val:.3f} (avg {label.avg:.3f}) unlabel-acc: {unlabel.val:.3f} "
                         "(avg {unlabel.avg:.3f}) LR: {2:.4f} inner-LR: {3:.4f}".format(
-                                step, args.total_steps, optimizer.param_groups[0]['lr'], args.inner_lr,
+                                step, args.total_steps, lr, args.inner_lr,
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
                                 ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
                                 ))
@@ -203,10 +204,10 @@ def main():
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict()
                 }, is_best, path=args.save_path, filename="checkpoint.pth")
-            # Reset the AverageMeters
-            losses, acc = [AverageMeter() for _ in range(2)]
             # Write to the tfboard
             writer.add_scalar('test/accuracy', acc, step)
+            # Reset the AverageMeters
+            losses, acc = [AverageMeter() for _ in range(2)]
 
 
 def test():
@@ -246,3 +247,5 @@ def test():
 
 # Train and evaluate the model
 main()
+writer.close()
+logger.close()
