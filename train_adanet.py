@@ -110,38 +110,34 @@ def main():
         unlabel_img = unlabel_img.to(args.device)
         unlabel_gt = unlabel_gt.to(args.device)
         data_end = time.time()
-
-        # Forward the label data
-        model.train()
-        classifier.train()
-        label_feature = model(label_img)
-        label_pred = classifier(label_feature)
-
-        # Forward the unlabel data
-        model.eval() # combine TODO
-        classifier.eval()
-        unlabel_feature = model(unlabel_img)
-        unlabel_pred = classifier(unlabel_feature)
-
-        # Conduct mix-up data augmentation
-        alpha = beta_distribution.sample((args.batch_size,)).to(args.device)
-        _alpha = alpha.view(-1, 1, 1, 1)
-        interp_img = label_img * _alpha + unlabel_img * (1. - _alpha)
-        interp_pseudo_gt = F.one_hot(label_gt, num_classes=10) * alpha + unlabel_pred * (1. - alpha)
-        interp_dis_gt = torch.cat((alpha, 1. - alpha), dim=1)
+        
+        with torch.no_grad():
+            # Forward the label data
+            model.eval() # combine TODO
+            classifier.eval()
+            label_pred = classifier(model(label_img))
+            # Forward the unlabel data
+            unlabel_pred = classifier(model(unlabel_img))
+    
+            # Conduct mix-up data augmentation
+            alpha = beta_distribution.sample((args.batch_size,)).to(args.device)
+            _alpha = alpha.view(-1, 1, 1, 1)
+            interp_img = (label_img * _alpha + unlabel_img * (1. - _alpha)).detach()
+            interp_pseudo_gt = (F.one_hot(label_gt, num_classes=10) * alpha + F.softmax(unlabel_pred, dim=1) * (1. - alpha)).detach()
+            interp_dis_gt = torch.cat((alpha, 1. - alpha), dim=1).detach()
         
         # Forward the interpolated data
         model.train()
         classifier.train()
-        discriminator.train()        
+        discriminator.train()
         interp_feature = model(interp_img)
         interp_pred = classifier(interp_feature)
         interp_dis_pred = discriminator(interp_feature)
         
         # Conduct distribution alignment
-        cls_loss = F.kl_div(torch.log(interp_pred), interp_pseudo_gt, reduction='none')
+        cls_loss = F.kl_div(torch.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='none')
         cls_loss = torch.mean(torch.sum(cls_loss, dim=1) * alpha.squeeze())
-        dis_loss = F.kl_div(torch.log(interp_dis_pred), interp_dis_gt, reduction='batchmean')
+        dis_loss = F.kl_div(torch.log_softmax(interp_dis_pred, dim=1), interp_dis_gt, reduction='batchmean')
         
         # One SGD step
         total_loss = cls_loss + args.gamma * dis_loss
