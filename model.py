@@ -28,7 +28,7 @@ class Classifier(nn.Module):
         if self.top_bn:
             self.top_bn_layer = MetaBatchNorm1d(num_class)
 
-    def forward(self, x, inner_lr=0.):
+    def forward(self, x, inner_lr=None):
         out = self.fc(x, inner_lr)
         if self.top_bn:
             out = self.top_bn_layer(out, inner_lr)
@@ -80,7 +80,7 @@ class ConvLarge(nn.Module):
                 nn.LeakyReLU(inplace=True, negative_slope=lrelu_slope) # inplace conf TODO
                 )
 
-    def forward(self, x, inner_lr=0.):
+    def forward(self, x, inner_lr=None):
         out = self.block1(x, inner_lr)
         out = self.block2(out, inner_lr)
         out = self.block3(out, inner_lr)
