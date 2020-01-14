@@ -48,6 +48,7 @@ logger.info(args)
 
 # Set device
 args.device, args.parallel, args.gpus = set_device(args.gpus, args.parallel)
+torch.backends.cudnn.benchmark = True
 
 # Define dataloader
 logger.info("Loading data...")
@@ -107,17 +108,19 @@ def main():
         # Compute the inner learning rate
         args.inner_lr = args.lr * args.multiplier if args.fix_inner \
                         else optimizer.param_groups[0]['lr'] * args.multiplier
-
+        
+        
         # Forward the unlabel data and perform a backward pass with grad
         unlabel_pred = classifier(model(unlabel_img))
-        unlabel_pseudo_gt = unlabel_pred.clone().detach().requires_grad_()
-        loss1 = F.kl_div(torch.log(unlabel_pred), unlabel_pseudo_gt, reduction='batchmean')
+        unlabel_pseudo_gt = F.softmax(unlabel_pred, dim=1).detach()
+        unlabel_pseudo_gt.requires_grad = True
+        loss1 = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
         loss1.backward(create_graph=True)
         
         # Forward the label data with the (pseudo-)updated params and compute grad of `unlabel_pseudo_gt`
         label_pred = classifier(model(label_img, args.inner_lr), args.inner_lr)
         loss2 = F.cross_entropy(label_pred, label_gt, reduction='mean')
-        unlabel_grad, = torch.autograd.grad(loss2, (unlabel_pseudo_gt, ), only_inputs=True)
+        unlabel_grad, = torch.autograd.grad(loss2, (unlabel_pseudo_gt, ), retain_graph=False, create_graph=False, only_inputs=True)
         
         # Update `unlabel_pseudo_gt`
         unlabel_pseudo_gt.requires_grad = False
@@ -132,16 +135,26 @@ def main():
                 unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
             elif args.type == '2':
                 torch.relu_(unlabel_pseudo_gt)
-                
+        
         # Compute loss with `unlabel_pseudo_gt`
-        unlabel_pred = classifier(model(unlabel_img))
-        loss = F.kl_div(torch.log(unlabel_pred), unlabel_pseudo_gt, reduction='batchmean')
-
+        # unlabel_pred = classifier(model(unlabel_img))
+        loss = F.kl_div(torch.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt.detach(), reduction='batchmean')
+        
+        ###
+        # label_pred = classifier(model(label_img)) 
+        # loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
+        ###
+        
         # One SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         lr_scheduler.step()
+        
+        ###
+        print(time.time() - data_end)
+        continue
+        ###
 
         # Compute accuracy
         label_top1, = accuracy(label_pred, label_gt, topk=(1,))
@@ -161,6 +174,7 @@ def main():
         writer.add_scalar('train/label-loss', loss2.item(), step)
         writer.add_scalar('train/unlabel-loss', loss.item(), step)
         writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)
+        writer.add_scalar('train/inner-lr', args.inner_lr, step)
     
         # Print and log
         if step % args.print_freq == 0:
@@ -168,8 +182,8 @@ def main():
                         "Btime: {btimes.val:.3f} (avg {btimes.avg:.3f}) label-loss: {llosses.val:.3f} "
                         "(avg {llosses.avg:.3f}) unlabel-loss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
                         "label-acc: {label.val:.3f} (avg {label.avg:.3f}) unlabel-acc: {unlabel.val:.3f} "
-                        "(avg {unlabel.avg:.3f}) LR: {2:.4f}".format(
-                                step, args.total_steps, optimizer.param_groups[0]['lr'],
+                        "(avg {unlabel.avg:.3f}) LR: {2:.4f} inner-LR: {3:.4f}".format(
+                                step, args.total_steps, optimizer.param_groups[0]['lr'], args.inner_lr,
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
                                 ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
                                 ))
