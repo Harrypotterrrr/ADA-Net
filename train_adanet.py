@@ -102,7 +102,7 @@ def main():
         data_start = time.time()
         label_img, label_gt = next(label_loader)
         unlabel_img, unlabel_gt = next(unlabel_loader)
-        assert label_img.shape == unlabel_img.shape, "Mismatch of image shaps: %s v.s. %s" % \
+        assert label_img.shape == unlabel_img.shape, "Mismatch of image shapes: %s v.s. %s" % \
                                                      (str(label_img.shape), str(unlabel_img.shape))
         
         label_img = label_img.to(args.device)
