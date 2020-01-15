@@ -6,17 +6,6 @@ def make_folder(path):
     if not exists(path):
         os.makedirs(path)
 
-def set_device(gpus, parallel):
-    if gpus == "" or not torch.cuda.is_available(): # cpu
-        return 'cpu', False, ""
-    else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(gpus)
-        gpus = list(range(len(gpus)))
-        if parallel is True and len(gpus) > 1: # multi gpus
-            return 'cuda:0', True, gpus
-        else: # single gpu
-            return 'cuda:'+ str(gpus[0]), False, gpus
-
 class Logger():
     def __init__(self, path="log.txt"):
         self.logger = logging.getLogger("Logger")

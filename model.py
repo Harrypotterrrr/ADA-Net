@@ -156,8 +156,23 @@ class ConvLarge(nn.Module):
         return feature
     """
 
-class SimpleNet(nn.Module):
+class FullModel(nn.Module):
+    def __init__(self, input_dim=3, num_class=10, stochastic=True, top_bn=False):
+        super(FullModel, self).__init__()
+        self.convlarge = ConvLarge(input_dim, stochastic)
+        self.classifier = Classifier(128, num_class, top_bn)
+    
+    def forward(self, x):
+        feature = self.convlarge(x)
+        pred = self.classifier(feature)
+        return pred
+    
+    def meta_forward(self, x, inner_lr):
+        feature = self.convlarge(x, inner_lr)
+        pred = self.classifier(feature, inner_lr)
+        return pred
 
+class SimpleNet(nn.Module):
     def __init__(self, in_channel, num_classes):
         super().__init__()
         self.fc1 = nn.Linear(in_features=in_channel, out_features=10)

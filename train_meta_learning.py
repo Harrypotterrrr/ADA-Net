@@ -1,14 +1,12 @@
 import os, argparse, torch, time
-from itertools import chain
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD
 from torch.optim.lr_scheduler import MultiStepLR
 from tensorboardX import SummaryWriter
 
 from dataloader import cifar10
-from utils import make_folder, set_device, AverageMeter, Logger, accuracy, save_checkpoint
-from model import ConvLarge, Classifier
+from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint
+from model import FullModel
 
 parser = argparse.ArgumentParser()
 
@@ -16,11 +14,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--num_label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
 # Training setting
-parser.add_argument('--parallel', action='store_true', help='Use DataParallel')
-parser.add_argument('-g', '--gpus', default=['0'], nargs='+', type=str, help='Specify GPU ids.')
 parser.add_argument('--total_steps', type=int, default=120000, help='Total training epochs')
 parser.add_argument('--start_step', type=int, default=0, help='Start step (for resume)')
 parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
+parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for estimation gradients')
 parser.add_argument('--lr', type=float, default=0.1, help='Initial learning rate')
 parser.add_argument('--lr_decay', type=float, default=0.1, help='Learning rate annealing multiplier')
 parser.add_argument('--multiplier', type=float, default=1., help='args.inner_lr=args.lr*args.multipler (for the label update)')
@@ -46,8 +43,6 @@ writer = SummaryWriter(log_dir=args.save_path)
 logger.info('Called with args:')
 logger.info(args)
 
-# Set device
-args.device, args.parallel, args.gpus = set_device(args.gpus, args.parallel)
 torch.backends.cudnn.benchmark = True
 
 # Define dataloader
@@ -58,18 +53,11 @@ label_loader, unlabel_loader, test_loader = cifar10(
 
 # Build model
 logger.info("Building models...")
-model = ConvLarge() if args.device=='cpu' else ConvLarge().cuda()
-classifier = Classifier() if args.device=='cpu' else Classifier().cuda()
-
-if args.parallel:
-    logger.info('Use parallel with gpus: %s' % str(os.environ["CUDA_VISIBLE_DEVICES"]))
-    model = nn.DataParallel(model, device_ids=args.gpus)
-    classifier = nn.DataParallel(classifier, device_ids=args.gpus)
+model = FullModel().cuda()
 
 # Build optimizer and lr_scheduler
 logger.info("Building optimizer and lr_scheduler...")
-optimizer = SGD(chain(model.parameters(), classifier.parameters()),
-                lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 lr_scheduler = MultiStepLR(optimizer, gamma=args.lr_decay,
                            milestones=[args.total_steps//2, args.total_steps*3//4])
    
@@ -81,7 +69,6 @@ if args.resume is not None:
         args.start_step = checkpoint['step']
         best_acc = checkpoint['best_acc']
         model.load_state_dict(checkpoint['model'])
-        classifier.load_state_dict(checkpoint['classifier'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         logger.info("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
     else:
@@ -91,7 +78,6 @@ def main():
     data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
     best_acc = 0.
     model.train()
-    classifier.train()
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
         # Load data and distribute to devices
@@ -99,19 +85,73 @@ def main():
         label_img, label_gt = next(label_loader)
         unlabel_img, unlabel_gt = next(unlabel_loader)
         
-        label_img = label_img.to(args.device)
-        label_gt = label_gt.to(args.device)
-        unlabel_img = unlabel_img.to(args.device)
-        unlabel_gt = unlabel_gt.to(args.device)
+        label_img = label_img.cuda()
+        label_gt = label_gt.cuda()
+        unlabel_img = unlabel_img.cuda()
+        unlabel_gt = unlabel_gt.cuda()
         data_end = time.time()
         
-        # Compute the inner learning rate
+        # Compute the inner learning rate and outer learning rate
         args.inner_lr = args.lr * args.multiplier if args.fix_inner \
                         else optimizer.param_groups[0]['lr'] * args.multiplier
         lr = optimizer.param_groups[0]['lr']
         
+        ### First-order Approximation
+        _concat = lambda xs: torch.cat([x.view(-1) for x in xs])
+        
+        # Forward label data and perform backward pass
+        label_pred = model(label_img)
+        label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
+        dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
+        
+        # Compute the unlabel pseudo-gt
+        unlabel_pseudo_gt = F.softmax(model(unlabel_img), dim=1).detach()
+        unlabel_pseudo_gt.requires_grad = True
+        
+        # Compute step size for first-order approximation
+        epsilon = args.epsilon / torch.norm(_concat(dtheta))
+        
+        # positive label gradients
+        for p, g in zip(model.parameters(), dtheta):
+            p.data.add_(epsilon, g)
+        unlabel_pred = model(unlabel_img)
+        loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+        grads_pos, = torch.autograd.grad(loss, (unlabel_pseudo_gt, ), only_inputs=True)
+        
+        # negative label gradients
+        for p, g in zip(model.parameters(), dtheta):
+            p.data.sub_(2.*epsilon, g)
+        unlabel_pred = model(unlabel_img)
+        loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+        grads_neg, = torch.autograd.grad(loss, (unlabel_pseudo_gt, ), only_inputs=True)
+        
+        with torch.no_grad():
+            # Resume original params
+            for p, g in zip(model.parameters(), dtheta):
+                p.data.add_(epsilon, g)
+                
+            # Compute the approximated label gradients
+            unlabel_grad = -(grads_pos - grads_neg).div(2.*epsilon)
+        
+            # Update `unlabel_pseudo_gt`
+            unlabel_pseudo_gt.requires_grad = False
+            unlabel_pseudo_gt -= args.inner_lr * unlabel_grad
+            ### TODO: try several alternatives
+            if args.type == '0':
+                torch.relu_(unlabel_pseudo_gt)
+                unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
+            elif args.type == '1':
+                torch.clamp(unlabel_pseudo_gt, min=0., max=1., out=unlabel_pseudo_gt)
+                unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
+            elif args.type == '2':
+                torch.relu_(unlabel_pseudo_gt)
+            
+            # 
+        
+        """
+        ### Exact Backward on Backward
         # Forward the unlabel data and perform a backward pass with grad
-        unlabel_pred = classifier(model(unlabel_img))
+        unlabel_pred = model(unlabel_img)
         unlabel_pseudo_gt = F.softmax(unlabel_pred, dim=1).detach()
         unlabel_pseudo_gt.requires_grad = True
         loss1 = torch.sum(F.log_softmax(unlabel_pred, dim=1) * unlabel_pseudo_gt) / unlabel_img.size(0)
@@ -119,7 +159,7 @@ def main():
         loss1.backward(create_graph=True)
         
         # Forward the label data with the (pseudo-)updated params and compute grad of `unlabel_pseudo_gt`
-        label_pred = classifier.meta_forward(model.meta_forward(label_img, lr), lr)
+        label_pred = model.meta_forward(label_img, lr)
         loss2 = F.cross_entropy(label_pred, label_gt, reduction='mean')
         unlabel_grad, = torch.autograd.grad(loss2, (unlabel_pseudo_gt, ), only_inputs=True)
         
@@ -136,9 +176,10 @@ def main():
                 unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
             elif args.type == '2':
                 torch.relu_(unlabel_pseudo_gt)
+        """
         
         # Compute loss with `unlabel_pseudo_gt`
-        # unlabel_pred = classifier(model(unlabel_img))
+        unlabel_pred = model(unlabel_img)
         loss = F.kl_div(torch.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt.detach(), reduction='batchmean')
         
         ### Baseline
@@ -164,7 +205,8 @@ def main():
         # Update AverageMeter stats
         data_times.update(data_end - data_start)
         batch_times.update(time.time() - data_end)
-        label_losses.update(loss2.item(), label_img.size(0))
+        # label_losses.update(loss2.item(), label_img.size(0))
+        label_losses.update(label_loss.item(), label_img.size(0))
         unlabel_losses.update(loss.item(), label_img.size(0))
         label_acc.update(label_top1.item(), label_img.size(0))
         unlabel_acc.update(unlabel_top1.item(), label_img.size(0))
@@ -172,7 +214,8 @@ def main():
         # Write to tfboard
         writer.add_scalar('train/label-acc', label_top1.item(), step)
         writer.add_scalar('train/unlabel-acc', unlabel_top1.item(), step)
-        writer.add_scalar('train/label-loss', loss2.item(), step)
+        # writer.add_scalar('train/label-loss', loss2.item(), step)
+        writer.add_scalar('train/label-loss', label_loss.item(), step)
         writer.add_scalar('train/unlabel-loss', loss.item(), step)
         writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)
         writer.add_scalar('train/inner-lr', args.inner_lr, step)
@@ -200,7 +243,6 @@ def main():
             save_checkpoint({
                 'step': step + 1,
                 'model': model.state_dict(),
-                'classifier': classifier.state_dict(),
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict()
                 }, is_best, path=args.save_path, filename="checkpoint.pth")
@@ -214,16 +256,15 @@ def test():
     batch_time, losses, acc = [AverageMeter() for _ in range(3)]
     # switch to evaluate mode
     model.eval()
-    classifier.eval()
 
     with torch.no_grad():
         end = time.time()
         for i, (data, target) in enumerate(test_loader):
-            data = data.to(args.device)
-            target = target.to(args.device)
+            data = data.cuda()
+            target = target.cuda()
 
             # compute output
-            pred = classifier(model(data))
+            pred = model(data)
             loss = F.cross_entropy(pred, target, reduction='mean')
             
             # measure accuracy and record loss
@@ -242,7 +283,6 @@ def test():
         logger.info(' * Accuracy {acc.avg:.5f}'.format(acc=acc))
     
     model.train()
-    classifier.train()
     return acc.avg
 
 # Train and evaluate the model
