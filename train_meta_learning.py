@@ -1,4 +1,5 @@
 import os, argparse, torch, time
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD
 from torch.optim.lr_scheduler import MultiStepLR
@@ -36,6 +37,27 @@ parser.add_argument('--save_path', type=str, default='./results/tmp', help='Save
 
 args = parser.parse_args()
 
+class CrossEntropy(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(CrossEntropy, self).__init__()
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        assert reduction in ['none', 'sum', 'mean'], "args: `reduction` should be 'none' or 'sum' or 'mean'."
+        self.reduction = reduction
+    
+    def forward(self, x, target):
+        r"""
+        Params: x      -- of Size [bs, n_classes] (logits before Softmax)
+                target -- of Size [bs, n_classes] (target probabilities)
+        """
+        logit = -self.log_softmax(x)
+        losses = torch.sum(logit * target, dim=1)
+        if self.reduction == "none":
+            return losses
+        elif self.reduction == "sum":
+            return torch.sum(losses)
+        elif self.reduction == "mean":
+            return torch.mean(losses)
+
 # Create directories if not exist
 make_folder(args.save_path)
 logger = Logger(os.path.join(args.save_path, 'log.txt'))
@@ -54,6 +76,7 @@ label_loader, unlabel_loader, test_loader = cifar10(
 # Build model
 logger.info("Building models...")
 model = FullModel().cuda()
+criterion = CrossEntropy().cuda()
 
 # Build optimizer and lr_scheduler
 logger.info("Building optimizer and lr_scheduler...")
@@ -91,14 +114,58 @@ def main():
         unlabel_gt = unlabel_gt.cuda()
         data_end = time.time()
         
+        """
         # Compute the inner learning rate and outer learning rate
         args.inner_lr = args.lr * args.multiplier if args.fix_inner \
                         else optimizer.param_groups[0]['lr'] * args.multiplier
         lr = optimizer.param_groups[0]['lr']
+        """
         
-        ### First-order Approximation
+        ### First-order Approximation ###
         _concat = lambda xs: torch.cat([x.view(-1) for x in xs])
         
+        # Forward label data and perform backward pass
+        label_pred = model(label_img)
+        label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
+        dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
+        
+        # Compute the unlabel pseudo-gt
+        unlabel_pseudo_gt = torch.zeros(unlabel_img.size(0), 10).cuda()
+        unlabel_pseudo_gt.requires_grad = True
+        
+        # Compute step size for first-order approximation
+        epsilon = args.epsilon / torch.norm(_concat(dtheta))
+        
+        # positive label gradients
+        for p, g in zip(model.parameters(), dtheta):
+            p.data.add_(epsilon, g)
+        with torch.no_grad():
+            unlabel_pred = model(unlabel_img)
+        loss = criterion(unlabel_pred, unlabel_pseudo_gt)
+        grads_pos, = torch.autograd.grad(loss, (unlabel_pseudo_gt, ), only_inputs=True)
+        
+        # negative label gradients
+        for p, g in zip(model.parameters(), dtheta):
+            p.data.sub_(2.*epsilon, g)
+        with torch.no_grad():
+            unlabel_pred = model(unlabel_img)
+        loss = criterion(unlabel_pred, unlabel_pseudo_gt)
+        grads_neg, = torch.autograd.grad(loss, (unlabel_pseudo_gt, ), only_inputs=True)
+        
+        with torch.no_grad():
+            # Resume original params
+            for p, g in zip(model.parameters(), dtheta):
+                p.data.add_(epsilon, g)
+                
+            ### TODO: normalization approach and whether to normalize or not
+            # Compute the approximated label gradients
+            unlabel_grad_neg = (grads_pos - grads_neg).div(2.*epsilon)
+            torch.relu_(unlabel_grad_neg)
+            sums = torch.sum(unlabel_grad_neg, dim=1, keepdim=True)
+            unlabel_grad_neg /= torch.where(sums == 0., torch.ones_like(sums), sums)
+        
+        ### TODO: try the commented scripts -- initialize the unlabel gt as the current prediction
+        """
         # Forward label data and perform backward pass
         label_pred = model(label_img)
         label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
@@ -115,14 +182,14 @@ def main():
         for p, g in zip(model.parameters(), dtheta):
             p.data.add_(epsilon, g)
         unlabel_pred = model(unlabel_img)
-        loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+        loss = criterion(unlabel_pred, unlabel_pseudo_gt)
         grads_pos, = torch.autograd.grad(loss, (unlabel_pseudo_gt, ), only_inputs=True)
         
         # negative label gradients
         for p, g in zip(model.parameters(), dtheta):
             p.data.sub_(2.*epsilon, g)
         unlabel_pred = model(unlabel_img)
-        loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+        loss = criterion(unlabel_pred, unlabel_pseudo_gt)
         grads_neg, = torch.autograd.grad(loss, (unlabel_pseudo_gt, ), only_inputs=True)
         
         with torch.no_grad():
@@ -132,40 +199,10 @@ def main():
                 
             # Compute the approximated label gradients
             unlabel_grad = -(grads_pos - grads_neg).div(2.*epsilon)
+            grad_norm = torch.norm(unlabel_grad)
         
             # Update `unlabel_pseudo_gt`
             unlabel_pseudo_gt.requires_grad = False
-            unlabel_pseudo_gt -= args.inner_lr * unlabel_grad
-            ### TODO: try several alternatives
-            if args.type == '0':
-                torch.relu_(unlabel_pseudo_gt)
-                unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
-            elif args.type == '1':
-                torch.clamp(unlabel_pseudo_gt, min=0., max=1., out=unlabel_pseudo_gt)
-                unlabel_pseudo_gt /= torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
-            elif args.type == '2':
-                torch.relu_(unlabel_pseudo_gt)
-            
-            # 
-        
-        """
-        ### Exact Backward on Backward
-        # Forward the unlabel data and perform a backward pass with grad
-        unlabel_pred = model(unlabel_img)
-        unlabel_pseudo_gt = F.softmax(unlabel_pred, dim=1).detach()
-        unlabel_pseudo_gt.requires_grad = True
-        loss1 = torch.sum(F.log_softmax(unlabel_pred, dim=1) * unlabel_pseudo_gt) / unlabel_img.size(0)
-        # loss1 = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
-        loss1.backward(create_graph=True)
-        
-        # Forward the label data with the (pseudo-)updated params and compute grad of `unlabel_pseudo_gt`
-        label_pred = model.meta_forward(label_img, lr)
-        loss2 = F.cross_entropy(label_pred, label_gt, reduction='mean')
-        unlabel_grad, = torch.autograd.grad(loss2, (unlabel_pseudo_gt, ), only_inputs=True)
-        
-        # Update `unlabel_pseudo_gt`
-        unlabel_pseudo_gt.requires_grad = False
-        with torch.no_grad():
             unlabel_pseudo_gt -= args.inner_lr * unlabel_grad
             ### TODO: try several alternatives
             if args.type == '0':
@@ -180,16 +217,21 @@ def main():
         
         # Compute loss with `unlabel_pseudo_gt`
         unlabel_pred = model(unlabel_img)
-        loss = F.kl_div(torch.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt.detach(), reduction='batchmean')
+        unlabel_loss = criterion(unlabel_pred, unlabel_grad_neg)
         
         ### Baseline
-        # label_pred = classifier(model(label_img)) 
+        # label_pred = model(label_img) 
         # loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
         ###
         
         # One SGD step
         optimizer.zero_grad()
-        loss.backward()
+        unlabel_loss.backward()
+        ### TODO: try to include label data into training
+        ### Uncomment this to incorporate label data into training
+        # for p, g in zip(model.parameters(), dtheta):
+        #     p.grad.add_(g)
+        ###
         optimizer.step()
         lr_scheduler.step()
         
@@ -205,20 +247,12 @@ def main():
         # Update AverageMeter stats
         data_times.update(data_end - data_start)
         batch_times.update(time.time() - data_end)
-        # label_losses.update(loss2.item(), label_img.size(0))
         label_losses.update(label_loss.item(), label_img.size(0))
-        unlabel_losses.update(loss.item(), label_img.size(0))
+        unlabel_losses.update(unlabel_loss.item(), unlabel_img.size(0))
         label_acc.update(label_top1.item(), label_img.size(0))
-        unlabel_acc.update(unlabel_top1.item(), label_img.size(0))
+        unlabel_acc.update(unlabel_top1.item(), unlabel_img.size(0))
         
         # Write to tfboard
-        writer.add_scalar('train/label-acc', label_top1.item(), step)
-        writer.add_scalar('train/unlabel-acc', unlabel_top1.item(), step)
-        # writer.add_scalar('train/label-loss', loss2.item(), step)
-        writer.add_scalar('train/label-loss', label_loss.item(), step)
-        writer.add_scalar('train/unlabel-loss', loss.item(), step)
-        writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)
-        writer.add_scalar('train/inner-lr', args.inner_lr, step)
     
         # Print and log
         if step % args.print_freq == 0:
@@ -226,8 +260,8 @@ def main():
                         "Btime: {btimes.val:.3f} (avg {btimes.avg:.3f}) label-loss: {llosses.val:.3f} "
                         "(avg {llosses.avg:.3f}) unlabel-loss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
                         "label-acc: {label.val:.3f} (avg {label.avg:.3f}) unlabel-acc: {unlabel.val:.3f} "
-                        "(avg {unlabel.avg:.3f}) LR: {2:.4f} inner-LR: {3:.4f}".format(
-                                step, args.total_steps, lr, args.inner_lr,
+                        "(avg {unlabel.avg:.3f}) LR: {2:.4f}".format(
+                                step, args.total_steps, optimizer.param_groups[0]['lr'],
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
                                 ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
                                 ))
@@ -247,9 +281,14 @@ def main():
                 'optimizer' : optimizer.state_dict()
                 }, is_best, path=args.save_path, filename="checkpoint.pth")
             # Write to the tfboard
+            writer.add_scalar('train/label-acc', label_acc.avg, step)
+            writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
+            writer.add_scalar('train/label-loss', label_losses.avg, step)
+            writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
+            writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)
             writer.add_scalar('test/accuracy', acc, step)
             # Reset the AverageMeters
-            losses, acc = [AverageMeter() for _ in range(2)]
+            label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(4)]
 
 
 def test():
