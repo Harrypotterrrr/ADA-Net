@@ -98,12 +98,13 @@ def main():
         model.eval()
         # Forward label data and perform backward pass
         label_pred = model(label_img)
-        label_loss = clipped_kl_divergence(label_pred, label_gt)
+        label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float())
+        # label_loss = clipped_kl_divergence(label_pred, F.one_hot(label_gt, num_classes=10).float())
         dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
         
         with torch.no_grad():
             # Compute the unlabel pseudo-gt
-            unlabel_pseudo_gt = model(unlabel_img)
+            unlabel_pseudo_gt = F.softmax(model(unlabel_img), dim=1)
             # Compute step size for first-order approximation
             epsilon = args.epsilon / torch.norm(_concat(dtheta))
             # Forward finite difference
@@ -118,7 +119,7 @@ def main():
             for p, g in zip(model.parameters(), dtheta):
                 p.data.add_(epsilon, g)
             # Compute (approximated) gradients w.r.t pseudo-gt of unlabel data
-            unlabel_grad = F.log_softmax(unlabel_pred_neg, dim=1) - F.log_softmax(unlabel_pred_pos, dim=1)
+            unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
             unlabel_grad.div_(2.*epsilon)
             # Update pseudo-gt of unlabel data
             unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
@@ -135,7 +136,8 @@ def main():
         model.train()
         # Compute loss with `unlabel_pseudo_gt`
         unlabel_pred = model(unlabel_img)
-        unlabel_loss = clipped_kl_divergence(unlabel_pred, unlabel_pseudo_gt)
+        unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt)
+        # unlabel_loss = clipped_kl_divergence(unlabel_pred, unlabel_pseudo_gt)
         
         ### Baseline
         # label_pred = model(label_img) 

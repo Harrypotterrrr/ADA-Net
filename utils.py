@@ -143,15 +143,23 @@ class ClippedKLDivergence(Function):
     def backward(ctx, grad_output):
         if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
             x, target = ctx.saved_variables
+            # print("before softmax")
+            # print(x)
             x = F.softmax(x, dim=1, _stacklevel=5)
-            target_over_x = target / x
+            target_over_x = target / (x + 1e-8)
+            # print("after softmax")
+            # print(x)
         
         grad_x, grad_target = None, None
         if ctx.needs_input_grad[0]:
             grad_x = -target_over_x / x.size(0)
+            # print("x")
+            # print(grad_x)
             grad_x -= torch.mean(grad_x, dim=1, keepdim=True)
         if ctx.needs_input_grad[1]:
-            grad_target = torch.log(target_over_x) / x.size(0)
+            grad_target = torch.log(target_over_x + 1e-8) / x.size(0)
+            # print("target")
+            # print(grad_target)
             grad_target -= torch.mean(grad_target, dim=1, keepdim=True)
         return grad_x, grad_target
 
