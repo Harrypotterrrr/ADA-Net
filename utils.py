@@ -1,6 +1,9 @@
 import os, logging, shutil
 from os.path import exists, join
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Function
 
 def make_folder(path):
     if not exists(path):
@@ -61,3 +64,96 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
+class CrossEntropy(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(CrossEntropy, self).__init__()
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        assert reduction in ['none', 'sum', 'mean'], "args: `reduction` should be 'none' or 'sum' or 'mean'."
+        self.reduction = reduction
+    
+    def forward(self, x, target):
+        r"""
+        Params: x      -- of Size [bs, n_classes] (logits before Softmax)
+                target -- of Size [bs, n_classes] (target probabilities)
+        """
+        logit = -self.log_softmax(x)
+        losses = torch.sum(logit * target, dim=1)
+        if self.reduction == "none":
+            return losses
+        elif self.reduction == "sum":
+            return torch.sum(losses)
+        elif self.reduction == "mean":
+            return torch.mean(losses)
+
+class KLDivergence(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(KLDivergence, self).__init__()
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        assert reduction in ['none', 'sum', 'mean'], "args: `reduction` should be 'none' or 'sum' or 'mean'."
+        self.reduction = reduction
+    
+    def forward(self, x, target):
+        r"""
+        Params: x      -- of Size [bs, n_classes] (logits before Softmax)
+                target -- of Size [bs, n_classes] (target probabilities)
+        """
+        logit = self.log_softmax(x)
+        losses = torch.sum(target * (torch.log(target) - logit), dim=1)
+        if self.reduction == "none":
+            return losses
+        elif self.reduction == "sum":
+            return torch.sum(losses)
+        elif self.reduction == "mean":
+            return torch.mean(losses)
+
+class ClippedCrossEntropy(Function):
+    @staticmethod
+    def forward(ctx, x, target):
+        ctx.save_for_backward(x, target)
+        logit = F.log_softmax(x, dim=1, _stacklevel=5)
+        loss = F.kl_div(logit, target, reduction='batchmean')
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+            x, target = ctx.saved_variables
+            x = F.softmax(x, dim=1, _stacklevel=5)
+            target_over_x = target / x
+        
+        grad_x, grad_target = None, None
+        if ctx.needs_input_grad[0]:
+            grad_x = -target_over_x / x.size(0)
+            grad_x -= torch.mean(grad_x, dim=1, keepdim=True)
+        if ctx.needs_input_grad[1]:
+            grad_target = torch.log(target_over_x) / x.size(0)
+            grad_target -= torch.mean(grad_target, dim=1, keepdim=True)
+        return grad_x, grad_target
+               
+class ClippedKLDivergence(Function):
+    @staticmethod
+    def forward(ctx, x, target):
+        ctx.save_for_backward(x, target)
+        logit = F.log_softmax(x, dim=1, _stacklevel=5)
+        loss = F.kl_div(logit, target, reduction='batchmean')
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+            x, target = ctx.saved_variables
+            x = F.softmax(x, dim=1, _stacklevel=5)
+            target_over_x = target / x
+        
+        grad_x, grad_target = None, None
+        if ctx.needs_input_grad[0]:
+            grad_x = -target_over_x / x.size(0)
+            grad_x -= torch.mean(grad_x, dim=1, keepdim=True)
+        if ctx.needs_input_grad[1]:
+            grad_target = torch.log(target_over_x) / x.size(0)
+            grad_target -= torch.mean(grad_target, dim=1, keepdim=True)
+        return grad_x, grad_target
+
+clipped_cross_entropy = ClippedCrossEntropy.apply
+clipped_kl_divergence = ClippedKLDivergence.apply
