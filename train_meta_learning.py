@@ -160,9 +160,14 @@ def main():
             ### TODO: normalization approach and whether to normalize or not
             # Compute the approximated label gradients
             unlabel_grad_neg = (grads_pos - grads_neg).div(2.*epsilon)
-            torch.relu_(unlabel_grad_neg)
-            sums = torch.sum(unlabel_grad_neg, dim=1, keepdim=True)
-            unlabel_grad_neg /= torch.where(sums == 0., torch.ones_like(sums), sums)
+            if args.type == '0':
+                torch.relu_(unlabel_grad_neg)
+                sums = torch.sum(unlabel_grad_neg, dim=1, keepdim=True)
+                unlabel_grad_neg /= torch.where(sums == 0., torch.ones_like(sums), sums)
+            elif args.type == '1':
+                torch.relu_(unlabel_grad_neg)
+            elif args.type == '2':
+                pass
         
         ### TODO: try the commented scripts -- initialize the unlabel gt as the current prediction
         """
@@ -255,12 +260,10 @@ def main():
             
         # Print and log
         if step % args.print_freq == 0:
-            logger.info("Step: [{0:05d}/{1:05d}] Dtime: {dtimes.val:.3f} (avg {dtimes.avg:.3f}) "
-                        "Btime: {btimes.val:.3f} (avg {btimes.avg:.3f}) label-loss: {llosses.val:.3f} "
-                        "(avg {llosses.avg:.3f}) unlabel-loss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
-                        "label-acc: {label.val:.3f} (avg {label.avg:.3f}) unlabel-acc: {unlabel.val:.3f} "
-                        "(avg {unlabel.avg:.3f}) LR: {2:.4f}".format(
-                                step, args.total_steps, optimizer.param_groups[0]['lr'],
+            logger.info("Step{0:05d} Dtime: {dtimes.avg:.3f} Btime: {btimes.avg:.3f} "
+                        "label-loss: {llosses.val:.3f} (avg {llosses.avg:.3f}) unlabel-loss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
+                        "label-acc: {label.val:.3f} (avg {label.avg:.3f}) unlabel-acc: {unlabel.val:.3f} (avg {unlabel.avg:.3f}) LR: {1:.4f}".format(
+                                step, optimizer.param_groups[0]['lr'],
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
                                 ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
                                 ))
