@@ -1,4 +1,4 @@
-import os, argparse, torch, time
+import os, argparse, torch, time, random
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD
@@ -28,6 +28,7 @@ parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight dec
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
 parser.add_argument('--num_workers', type=int, default=4, help='Number of workers')
 parser.add_argument('--resume', type=str, default=None, help='Resume model from a checkpoint')
+parser.add_argument('--seed', type=int, default=1234, help='Random seed for reproducibility')
 # Misc
 parser.add_argument('--print_freq', type=int, default=1, help='Print and log frequency')
 parser.add_argument('--test_freq', type=int, default=400, help='Test frequency')
@@ -36,6 +37,13 @@ parser.add_argument('--data_path', type=str, default='./data', help='Data path')
 parser.add_argument('--save_path', type=str, default='./results/tmp', help='Save path')
 args = parser.parse_args()
 
+# Set random seed
+random.seed(args.seed)
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
+os.environ['PYTHONHASHSEED'] = str(args.seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 # Create directories if not exist
 make_folder(args.save_path)
 logger = Logger(os.path.join(args.save_path, 'log.txt'))
@@ -98,7 +106,7 @@ def main():
         model.eval()
         # Forward label data and perform backward pass
         label_pred = model(label_img)
-        label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float())
+        label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float(), reduction='batchmean')
         # label_loss = clipped_kl_divergence(label_pred, F.one_hot(label_gt, num_classes=10).float())
         dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
         
@@ -136,7 +144,7 @@ def main():
         model.train()
         # Compute loss with `unlabel_pseudo_gt`
         unlabel_pred = model(unlabel_img)
-        unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt)
+        unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
         # unlabel_loss = clipped_kl_divergence(unlabel_pred, unlabel_pseudo_gt)
         
         ### Baseline
