@@ -23,10 +23,10 @@ parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
 parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for gradient estimation')
 parser.add_argument('--lr', type=float, default=0.1, help='Initial learning rate')
 parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate annealing multiplier')
-parser.add_argument('--milestones', type=list, default=[60000, 90000], help='Learning rate annealing steps')
+parser.add_argument('--milestones', type=eval, default=[60000, 90000], help='Learning rate annealing steps')
 parser.add_argument('--inner-lr', type=float, default=0.1, help='Initial inner learning rate')
 parser.add_argument('--inner-gamma', type=float, default=0.1, help='Inner learning rate annealing multiplier')
-parser.add_argument('--inner-milestones', type=list, default=[60000, 90000], help='Inner learning rate annealing steps')
+parser.add_argument('--inner-milestones', type=eval, default=[60000, 90000], help='Inner learning rate annealing steps')
 parser.add_argument('--inner-iter', type=int, default=1, help='Number of iterations in the inner loop')
 parser.add_argument('--type', default='0', type=str, choices=['0', '1', '2', '3'], help='normalization type of updated labels')
 parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
@@ -101,7 +101,7 @@ def main():
         data_end = time.time()
         
         # Compute the inner learning rate and outer learning rate
-        inner_lr = compute_lr(args.inner_lr, step, args.inner_gamma, args.inner_.milestones)
+        inner_lr = compute_lr(args.inner_lr, step, args.inner_gamma, args.inner_milestones)
         lr = compute_lr(args.lr, step, args.gamma, args.milestones)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
