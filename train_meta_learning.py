@@ -6,35 +6,40 @@ from torch.optim.lr_scheduler import MultiStepLR
 from tensorboardX import SummaryWriter
 
 from dataloader import cifar10
-from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint
+from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_lr
 from utils import CrossEntropy, KLDivergence, clipped_cross_entropy, clipped_kl_divergence
 from model import FullModel
 
 parser = argparse.ArgumentParser()
 # Configuration
-parser.add_argument('--num_label', type=int, default=4000)
+parser.add_argument('--num-label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
 # Training setting
-parser.add_argument('--total_steps', type=int, default=120000, help='Total training epochs')
-parser.add_argument('--start_step', type=int, default=0, help='Start step (for resume)')
-parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
-parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for estimation gradients')
+parser.add_argument('--use-label', action='store_true', help='Directly use label data')
+parser.add_argument('--unlabel-weight', type=float, default=1., help='re-weighting scalar for unlabel data')
+parser.add_argument('--total-steps', type=int, default=120000, help='Total training epochs')
+parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
+parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
+parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for gradient estimation')
 parser.add_argument('--lr', type=float, default=0.1, help='Initial learning rate')
 parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate annealing multiplier')
-parser.add_argument('--multiplier', type=float, default=1., help='args.inner_lr=args.lr*args.multipler (for the label update)')
-parser.add_argument('--fix_inner', action='store_true', help='fix the inner learning rate')
+parser.add_argument('--milestones', type=list, default=[60000, 90000], help='Learning rate annealing steps')
+parser.add_argument('--inner-lr', type=float, default=0.1, help='Initial inner learning rate')
+parser.add_argument('--inner-gamma', type=float, default=0.1, help='Inner learning rate annealing multiplier')
+parser.add_argument('--inner-milestones', type=list, default=[60000, 90000], help='Inner learning rate annealing steps')
+parser.add_argument('--inner-iter', type=int, default=1, help='Number of iterations in the inner loop')
 parser.add_argument('--type', default='0', type=str, choices=['0', '1', '2', '3'], help='normalization type of updated labels')
-parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay')
+parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
-parser.add_argument('--num_workers', type=int, default=4, help='Number of workers')
+parser.add_argument('--num-workers', type=int, default=4, help='Number of workers')
 parser.add_argument('--resume', type=str, default=None, help='Resume model from a checkpoint')
 parser.add_argument('--seed', type=int, default=1234, help='Random seed for reproducibility')
 # Misc
-parser.add_argument('--print_freq', type=int, default=1, help='Print and log frequency')
-parser.add_argument('--test_freq', type=int, default=400, help='Test frequency')
+parser.add_argument('--print-freq', type=int, default=1, help='Print and log frequency')
+parser.add_argument('--test-freq', type=int, default=400, help='Test frequency')
 # Path
-parser.add_argument('--data_path', type=str, default='./data', help='Data path')
-parser.add_argument('--save_path', type=str, default='./results/tmp', help='Save path')
+parser.add_argument('--data-path', type=str, default='./data', help='Data path')
+parser.add_argument('--save-path', type=str, default='./results/tmp', help='Save path')
 args = parser.parse_args()
 
 # Set random seed
@@ -58,7 +63,7 @@ label_loader, unlabel_loader, test_loader = cifar10(
         )
 # Build model and optimizer
 logger.info("Building model and optimzer...")
-model = FullModel(stochastic=False).cuda()
+model = FullModel(stochastic=True).cuda()
 optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 logger.info("Model:\n%s\nOptimizer:\n%s" % (str(model), str(optimizer)))
 # Optionally resume from a checkpoint
@@ -96,9 +101,10 @@ def main():
         data_end = time.time()
         
         # Compute the inner learning rate and outer learning rate
-        inner_lr = args.lr * args.multiplier if args.fix_inner \
-                   else optimizer.param_groups[0]['lr'] * args.multiplier
-        lr = optimizer.param_groups[0]['lr']
+        inner_lr = compute_lr(args.inner_lr, step, args.inner_gamma, args.inner_.milestones)
+        lr = compute_lr(args.lr, step, args.gamma, args.milestones)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
         
         ### First-order Approximation ###
         _concat = lambda xs: torch.cat([x.view(-1) for x in xs])
@@ -110,6 +116,7 @@ def main():
         # label_loss = clipped_kl_divergence(label_pred, F.one_hot(label_gt, num_classes=10).float())
         dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
         
+        ### TODO: implement inner-iter
         with torch.no_grad():
             # Compute the unlabel pseudo-gt
             unlabel_pseudo_gt = F.softmax(model(unlabel_img), dim=1)
@@ -131,7 +138,7 @@ def main():
             unlabel_grad.div_(2.*epsilon)
             # Update pseudo-gt of unlabel data
             unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
-            ### TODO: normalization approach and whether to normalize or not
+            # Normalization alternatives
             if args.type == '0':
                 torch.relu_(unlabel_pseudo_gt)
                 sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
@@ -147,14 +154,17 @@ def main():
         unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
         # unlabel_loss = clipped_kl_divergence(unlabel_pred, unlabel_pseudo_gt)
         
-        ### Baseline
-        # label_pred = model(label_img) 
-        # loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
-        ###
+        # Use label data
+        if args.use_label:
+            label_pred = model(label_img) 
+            label_loss = F.kl_div(label_pred, F.one_hot(label_gt, num_classes=10), reduction='batchmean')
+            loss = label_loss + args.unlabel_weight * unlabel_loss
+        else:
+            loss = unlabel_loss
         
         # One SGD step
         optimizer.zero_grad()
-        unlabel_loss.backward()
+        loss.backward()
         optimizer.step()
         # Compute accuracy
         label_top1, = accuracy(label_pred, label_gt, topk=(1,))

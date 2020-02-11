@@ -9,6 +9,12 @@ def make_folder(path):
     if not exists(path):
         os.makedirs(path)
 
+def compute_lr(lr, curr_step, gamma, milestones):
+    for milestone in milestones:
+        if curr_step >= milestone:
+            lr *= gamma
+    return lr
+
 class Logger():
     def __init__(self, path="log.txt"):
         self.logger = logging.getLogger("Logger")
