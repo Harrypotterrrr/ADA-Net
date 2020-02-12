@@ -2,7 +2,6 @@ import os, argparse, torch, time, random
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD
-from torch.optim.lr_scheduler import MultiStepLR
 from tensorboardX import SummaryWriter
 
 from dataloader import cifar10
@@ -78,17 +77,12 @@ if args.resume is not None:
         logger.info("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
     else:
         logger.info("=> no checkpoint found at '{}'".format(args.resume))
-# Build learning rate scheduler
-lr_scheduler = MultiStepLR(optimizer, gamma=args.gamma, last_epoch=args.start_step-1,
-                           milestones=[args.total_steps//2, args.total_steps*3//4])
 
 def main():
     data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
     best_acc = 0.
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
-        # Adjust lr
-        lr_scheduler.step()
         # Load data and distribute to devices
         data_start = time.time()
         label_img, label_gt = next(label_loader)
@@ -157,7 +151,7 @@ def main():
         # Use label data
         if args.use_label:
             label_pred = model(label_img) 
-            label_loss = F.kl_div(label_pred, F.one_hot(label_gt, num_classes=10), reduction='batchmean')
+            label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float(), reduction='batchmean')
             loss = label_loss + args.unlabel_weight * unlabel_loss
         else:
             loss = unlabel_loss
