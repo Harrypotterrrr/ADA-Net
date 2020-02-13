@@ -79,7 +79,8 @@ if args.resume is not None:
         logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
 def main():
-    data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
+    data_times, batch_times, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(5)]
+    inner_record = [AverageMeter() for _ in range(args.inner_iter)]
     best_acc = 0.
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
@@ -104,43 +105,68 @@ def main():
         _concat = lambda xs: torch.cat([x.view(-1) for x in xs])
         # Evaluation model
         model.eval()
-        # Forward label data and perform backward pass
-        label_pred = model(label_img)
-        label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float(), reduction='batchmean')
-        # label_loss = clipped_kl_divergence(label_pred, F.one_hot(label_gt, num_classes=10).float())
-        dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
-        
-        ### TODO: implement inner-iter
-        with torch.no_grad():
-            # Compute the unlabel pseudo-gt
-            unlabel_pseudo_gt = F.softmax(model(unlabel_img), dim=1)
-            # Compute step size for first-order approximation
-            epsilon = args.epsilon / torch.norm(_concat(dtheta))
-            # Forward finite difference
-            for p, g in zip(model.parameters(), dtheta):
-                p.data.add_(epsilon, g)            
-            unlabel_pred_pos = model(unlabel_img)
-            # Backward finite difference
-            for p, g in zip(model.parameters(), dtheta):
-                p.data.sub_(2.*epsilon, g)
-            unlabel_pred_neg = model(unlabel_img)
-            # Resume original params
-            for p, g in zip(model.parameters(), dtheta):
-                p.data.add_(epsilon, g)
-            # Compute (approximated) gradients w.r.t pseudo-gt of unlabel data
-            unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
-            unlabel_grad.div_(2.*epsilon)
-            # Update pseudo-gt of unlabel data
-            unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
-            # Normalization alternatives
-            if args.type == '0':
-                torch.relu_(unlabel_pseudo_gt)
-                sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
-                unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
-            elif args.type == '1':
-                torch.relu_(unlabel_pseudo_gt)
-            elif args.type == '2':
-                pass
+        # Update pseudo label for `args.inner_iter` times
+        for inner_step in range(args.inner_iter):
+            if inner_step == 0:
+                # Forward label data
+                label_pred = model(label_img)
+                label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float(), reduction='batchmean')
+                # label_loss = clipped_kl_divergence(label_pred, F.one_hot(label_gt, num_classes=10).float())
+                with torch.no_grad():
+                    # Compute gradients of label data
+                    dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
+                    # Compute the unlabel pseudo-gt for the initial step of inner-loop
+                    unlabel_pseudo_gt = F.softmax(model(unlabel_img), dim=1)
+            else:
+                # Forward unlabel data
+                unlabel_pred = model(label_img)
+                unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+                with torch.no_grad():
+                    # Compute gradients of unlabel data
+                    dtheta0 = torch.autograd.grad(unlabel_loss, model.parameters(), only_inputs=True)
+                    # Update model parameters
+                    for p, g in zip(model.parameters(), dtheta0):
+                        p.data.sub_(lr, g)
+                # Forward label data
+                label_pred = model(label_img)
+                label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float(), reduction='batchmean')
+                with torch.no_grad():
+                    # Compute gradients of label data at updated parameters
+                    dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
+                    # Resume original params
+                    for p, g in zip(model.parameters(), dtheta0):
+                        p.data.add_(lr, g)
+            
+            with torch.no_grad():
+                # Record label loss for each inner-step
+                inner_record[inner_step].update(label_loss.item())
+                # Compute step size for first-order approximation
+                epsilon = args.epsilon / torch.norm(_concat(dtheta))
+                # Forward finite difference
+                for p, g in zip(model.parameters(), dtheta):
+                    p.data.add_(epsilon, g)            
+                unlabel_pred_pos = model(unlabel_img)
+                # Backward finite difference
+                for p, g in zip(model.parameters(), dtheta):
+                    p.data.sub_(2.*epsilon, g)
+                unlabel_pred_neg = model(unlabel_img)
+                # Resume original params
+                for p, g in zip(model.parameters(), dtheta):
+                    p.data.add_(epsilon, g)
+                # Compute (approximated) gradients w.r.t pseudo-gt of unlabel data
+                unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
+                unlabel_grad.div_(2.*epsilon)
+                # Update pseudo-gt of unlabel data
+                unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
+                # Normalization alternatives
+                if args.type == '0':
+                    torch.relu_(unlabel_pseudo_gt)
+                    sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
+                    unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
+                elif args.type == '1':
+                    torch.relu_(unlabel_pseudo_gt)
+                elif args.type == '2':
+                    pass
         # Training mode
         model.train()
         # Compute loss with `unlabel_pseudo_gt`
@@ -166,20 +192,19 @@ def main():
         # Update AverageMeter stats
         data_times.update(data_end - data_start)
         batch_times.update(time.time() - data_end)
-        label_losses.update(label_loss.item(), label_img.size(0))
         unlabel_losses.update(unlabel_loss.item(), unlabel_img.size(0))
         label_acc.update(label_top1.item(), label_img.size(0))
         unlabel_acc.update(unlabel_top1.item(), unlabel_img.size(0))
         # Print and log
         if step % args.print_freq == 0:
-            logger.info("Step {0:05d} Dtime: {dtimes.avg:.3f} Btime: {btimes.avg:.3f} "
-                        "Lloss: {llosses.val:.3f} (avg {llosses.avg:.3f}) Uloss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
-                        "Lacc: {label.val:.3f} (avg {label.avg:.3f}) Uacc: {unlabel.val:.3f} (avg {unlabel.avg:.3f}) "
-                        "OLR: {1:.4f} ILR: {2:.4f}".format(
-                                step, lr, inner_lr,
-                                dtimes=data_times, btimes=batch_times, llosses=label_losses,
-                                ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
-                                ))
+            info = "Step {0:05d} Dtime: {dtimes.avg:.3f} Btime: {btimes.avg:.3f} ".format(step, dtimes=data_times, btimes=batch_times)
+            for i in range(args.inner_iter):
+                info += "Lloss{0:d}: {llosses.val:.3f} (avg {llosses.avg:.3f}) ".format(i, llosses=inner_record[i])
+            info += "Uloss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) Lacc: {label.val:.3f} (avg {label.avg:.3f}) \
+                     Uacc: {unlabel.val:.3f} (avg {unlabel.avg:.3f}) OLR: {0:.4f} ILR: {1:.4f}".format(
+                            lr, inner_lr, ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
+                            )
+            logger.info(info)
         # Test and save model
         if (step + 1) % args.test_freq == 0 or step == args.total_steps - 1:
             acc = evaluate()
@@ -197,15 +222,17 @@ def main():
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
-            writer.add_scalar('train/label-loss', label_losses.avg, step)
+            for i in range(args.inner_iter):
+                writer.add_scalar('train/label-loss%d'%i, inner_record[i].avg, step)
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
-            writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)
+            writer.add_scalar('train/lr', lr, step)
+            writer.add_scalar('train/inner-lr', inner_lr, step)
             writer.add_scalar('test/accuracy', acc, step)
             # Reset the AverageMeters
-            label_losses.reset()
-            unlabel_losses.reset
+            unlabel_losses.reset()
             label_acc.reset()
             unlabel_acc.reset()
+            for meter in inner_record: meter.reset()
 
 @torch.no_grad()
 def evaluate():
