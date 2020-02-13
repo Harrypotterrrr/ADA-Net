@@ -203,7 +203,7 @@ def main():
             writer.add_scalar('test/accuracy', acc, step)
             # Reset the AverageMeters
             label_losses.reset()
-            unlabel_losses.reset
+            unlabel_losses.reset()
             label_acc.reset()
             unlabel_acc.reset()
 
