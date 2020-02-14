@@ -1,4 +1,4 @@
-import os, logging, shutil
+import os, logging, shutil, math
 from os.path import exists, join
 import torch
 import torch.nn as nn
@@ -14,6 +14,9 @@ def compute_lr(lr, curr_step, gamma, milestones):
         if curr_step >= milestone:
             lr *= gamma
     return lr
+
+def compute_weight(weight, step, total_steps):
+    return weight * (1 - math.cos(step / total_steps * math.pi)) / 2
 
 class Logger():
     def __init__(self, path="log.txt"):

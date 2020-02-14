@@ -5,7 +5,7 @@ from torch.optim import SGD
 from tensorboardX import SummaryWriter
 
 from dataloader import cifar10
-from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_lr
+from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_lr, compute_weight
 from utils import CrossEntropy, KLDivergence, clipped_cross_entropy, clipped_kl_divergence
 from model import FullModel
 
@@ -15,6 +15,7 @@ parser.add_argument('--num-label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
 # Training setting
 parser.add_argument('--use-label', action='store_true', help='Directly use label data')
+parser.add_argument('--auto-weight', action='store_true', help='Automatically adjust the weight for unlabel data')
 parser.add_argument('--unlabel-weight', type=float, default=1., help='re-weighting scalar for unlabel data')
 parser.add_argument('--total-steps', type=int, default=120000, help='Total training epochs')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
@@ -99,7 +100,11 @@ def main():
         lr = compute_lr(args.lr, step, args.gamma, args.milestones)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        
+        if args.auto_weight:
+            unlabel_weight = compute_weight(args.unlabel_weight, step, args.total_steps)
+        else:
+            unlabel_weight = args.unlabel_weight
+
         ### First-order Approximation ###
         _concat = lambda xs: torch.cat([x.view(-1) for x in xs])
         # Evaluation model
@@ -129,18 +134,43 @@ def main():
                 p.data.add_(epsilon, g)
             # Compute (approximated) gradients w.r.t pseudo-gt of unlabel data
             unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
-            unlabel_grad.div_(2.*epsilon)
-            # Update pseudo-gt of unlabel data
-            unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
             # Normalization alternatives
             if args.type == '0':
+                # Normal
+                unlabel_grad.div_(2.*epsilon)
+                unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
+                # Post-process
                 torch.relu_(unlabel_pseudo_gt)
                 sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
                 unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
             elif args.type == '1':
+                # Gradient Normalization
+                unlabel_grad /= torch.norm(unlabel_grad, p=2, dim=1, keepdim=True)
+                unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
+                # Post-process
                 torch.relu_(unlabel_pseudo_gt)
+                sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
+                unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
             elif args.type == '2':
-                pass
+                # Gradient clip
+                unlabel_grad.div_(2.*epsilon)
+                unlabel_grad -= torch.mean(unlabel_grad, dim=1, keepdim=True)
+                inner_lrs = torch.clamp(torch.min(unlabel_pseudo_gt / torch.clamp(unlabel_grad, min=1e-8), dim=1, keepdim=True)[0], max=inner_lr)
+                unlabel_pseudo_gt.sub_(inner_lrs * unlabel_grad)
+                assert torch.all(unlabel_pseudo_gt >= -1e-4)
+                assert torch.all(torch.abs(unlabel_pseudo_gt.norm(p=1, dim=1) - 1.) < 1e-4)
+                torch.relu_(unlabel_pseudo_gt)
+                F.normalize(unlabel_pseudo_gt, p=1, dim=1, out=unlabel_pseudo_gt)
+            elif args.type == '3':
+                # Gradient normaliztion and clip
+                unlabel_grad -= torch.mean(unlabel_grad, dim=1, keepdim=True)
+                unlabel_grad /= torch.norm(unlabel_grad, p=2, dim=1, keepdim=True)
+                inner_lrs = torch.clamp(torch.min(unlabel_pseudo_gt / torch.clamp(unlabel_grad, min=1e-8), dim=1, keepdim=True)[0], max=inner_lr)
+                unlabel_pseudo_gt.sub_(inner_lrs * unlabel_grad)
+                assert torch.all(unlabel_pseudo_gt >= -1e-4)
+                assert torch.all(torch.abs(unlabel_pseudo_gt.norm(p=1, dim=1) - 1.) < 1e-4)
+                torch.relu_(unlabel_pseudo_gt)
+                F.normalize(unlabel_pseudo_gt, p=1, dim=1, out=unlabel_pseudo_gt)
         # Training mode
         model.train()
         # Compute loss with `unlabel_pseudo_gt`
@@ -152,7 +182,7 @@ def main():
         if args.use_label:
             label_pred = model(label_img) 
             label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), F.one_hot(label_gt, num_classes=10).float(), reduction='batchmean')
-            loss = label_loss + args.unlabel_weight * unlabel_loss
+            loss = label_loss + unlabel_weight * unlabel_loss
         else:
             loss = unlabel_loss
         
@@ -175,8 +205,8 @@ def main():
             logger.info("Step {0:05d} Dtime: {dtimes.avg:.3f} Btime: {btimes.avg:.3f} "
                         "Lloss: {llosses.val:.3f} (avg {llosses.avg:.3f}) Uloss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
                         "Lacc: {label.val:.3f} (avg {label.avg:.3f}) Uacc: {unlabel.val:.3f} (avg {unlabel.avg:.3f}) "
-                        "OLR: {1:.4f} ILR: {2:.4f}".format(
-                                step, lr, inner_lr,
+                        "OLR: {1:.4f} ILR: {2:.4f} W: {3:.3f}".format(
+                                step, lr, inner_lr, unlabel_weight,
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
                                 ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
                                 ))
@@ -199,7 +229,9 @@ def main():
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
             writer.add_scalar('train/label-loss', label_losses.avg, step)
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
-            writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)
+            writer.add_scalar('train/lr', lr, step)
+            writer.add_scalar('train/inner-lr', inner_lr, step)
+            writer.add_scalar('train/weight', unlabel_weight, step)
             writer.add_scalar('test/accuracy', acc, step)
             # Reset the AverageMeters
             label_losses.reset()
