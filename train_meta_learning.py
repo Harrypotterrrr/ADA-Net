@@ -87,7 +87,8 @@ if args.resume is not None:
         logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
 def main():
-    data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
+    data_times, batch_times, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(5)]
+    inner_record = [AverageMeter() for _ in range(args.inner_iter)]
     best_acc = 0.
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
@@ -180,6 +181,7 @@ def main():
                 assert torch.all(torch.abs(unlabel_pseudo_gt.norm(p=1, dim=1) - 1.) < 1e-4)
                 torch.relu_(unlabel_pseudo_gt)
                 F.normalize(unlabel_pseudo_gt, p=1, dim=1, out=unlabel_pseudo_gt)
+
         # Training mode
         model.train()
         if args.mix_up:
@@ -214,7 +216,6 @@ def main():
         # Update AverageMeter stats
         data_times.update(data_end - data_start)
         batch_times.update(time.time() - data_end)
-        label_losses.update(label_loss.item(), label_img.size(0))
         unlabel_losses.update(unlabel_loss.item(), unlabel_img.size(0))
         label_acc.update(label_top1.item(), label_img.size(0))
         unlabel_acc.update(unlabel_top1.item(), unlabel_img.size(0))
@@ -245,7 +246,8 @@ def main():
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
-            writer.add_scalar('train/label-loss', label_losses.avg, step)
+            for i in range(args.inner_iter):
+                writer.add_scalar('train/label-loss%d'%i, inner_record[i].avg, step)
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
             writer.add_scalar('train/lr', lr, step)
             writer.add_scalar('train/inner-lr', inner_lr, step)
@@ -256,6 +258,7 @@ def main():
             unlabel_losses.reset()
             label_acc.reset()
             unlabel_acc.reset()
+            for meter in inner_record: meter.reset()
 
 @torch.no_grad()
 def evaluate():
