@@ -9,14 +9,19 @@ def make_folder(path):
     if not exists(path):
         os.makedirs(path)
 
-def compute_lr(lr, curr_step, gamma, milestones):
-    for milestone in milestones:
-        if curr_step >= milestone:
-            lr *= gamma
+def compute_lr(lr, decay_type, curr_step, total_steps, gamma, milestones):
+    if decay_type == 'step':
+        for milestone in milestones:
+            if curr_step >= milestone:
+                lr *= gamma
+    elif decay_type == 'linear' and curr_step >= milestones[0]:
+        lr *= 1. - (curr_step - milestones[0]) / (total_steps - milestones[0])
+    elif decay_type == 'cosine' and curr_step >= milestones[0]:
+        lr *= (1. + math.cos((curr_step - milestones[0]) / (total_steps - milestones[0]) *  math.pi)) / 2.
     return lr
 
 def compute_weight(weight, step, total_steps):
-    return weight * (1 - math.cos(step / total_steps * math.pi)) / 2
+    return weight * (1. - math.cos(step / total_steps * math.pi)) / 2.
 
 class Logger():
     def __init__(self, path="log.txt"):
