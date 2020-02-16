@@ -87,8 +87,7 @@ if args.resume is not None:
         logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
 def main():
-    data_times, batch_times, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(5)]
-    inner_record = [AverageMeter() for _ in range(args.inner_iter)]
+    data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
     best_acc = 0.
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
@@ -246,8 +245,7 @@ def main():
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
-            for i in range(args.inner_iter):
-                writer.add_scalar('train/label-loss%d'%i, inner_record[i].avg, step)
+            writer.add_scalar('train/label-loss%d', label_losses.avg, step)
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
             writer.add_scalar('train/lr', lr, step)
             writer.add_scalar('train/inner-lr', inner_lr, step)
@@ -258,7 +256,6 @@ def main():
             unlabel_losses.reset()
             label_acc.reset()
             unlabel_acc.reset()
-            for meter in inner_record: meter.reset()
 
 @torch.no_grad()
 def evaluate():
