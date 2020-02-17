@@ -210,7 +210,7 @@ def train(label_provider, unlabel_loader, model, optimizer, scheduler, epoch):
         label_data = next(label_provider)
         label_img = label_data[0]["data"]
         label_gt = label_data[0]["label"].squeeze().cuda().long()
-        _label_gt = F.one_hot(label_gt, num_classes=10).float()
+        _label_gt = F.one_hot(label_gt, num_classes=args.num_classes).float()
         unlabel_img = data[0]["data"]
         unlabel_gt = data[0]["label"].squeeze().cuda().long()
         if args.local_rank == 0:
@@ -310,8 +310,8 @@ def train(label_provider, unlabel_loader, model, optimizer, scheduler, epoch):
     # Reset the unlabel loader
     unlabel_loader.reset()
     if args.local_rank == 0:
-        tfboard_writer.add_scalar('train/label-loss', label_loss.avg, epoch)
-        tfboard_writer.add_scalar('train/unlabel-loss', unlabel_loss.avg, epoch)
+        tfboard_writer.add_scalar('train/label-loss', label_losses.avg, epoch)
+        tfboard_writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, epoch)
         tfboard_writer.add_scalar('train/label-acc1', label_acc1.avg, epoch)
         tfboard_writer.add_scalar('train/label-acc5', label_acc5.avg, epoch)
         tfboard_writer.add_scalar('train/unlabel-acc1', unlabel_acc1.avg, epoch)

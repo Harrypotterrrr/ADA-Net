@@ -29,6 +29,7 @@ def zca_whitening(x, norm_stats=None):
         sigma = np.dot(x_centered.T, x_centered) / x_centered.shape[0]
         U, Lambda, _ = np.linalg.svd(sigma)
         components = U.dot( np.diag( 1. / (np.sqrt(Lambda)+1e-5) ) ).dot(U.T)
+    else: mean, components = norm_stats
     whiten = np.dot(x - mean, components.T).reshape(*shape)
     return whiten, (mean, components)
 
