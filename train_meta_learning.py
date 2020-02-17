@@ -5,7 +5,7 @@ from torch.optim import SGD
 from torch.distributions import Beta
 from tensorboardX import SummaryWriter
 
-from dataloader import cifar10
+from dataloader import cifar10, svhn
 from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_lr, compute_weight
 from utils import CrossEntropy, KLDivergence, clipped_cross_entropy, clipped_kl_divergence
 from model import ConvLarge 
@@ -62,7 +62,9 @@ logger.info(args)
 torch.backends.cudnn.benchmark = True
 # Define dataloader
 logger.info("Loading data...")
-label_loader, unlabel_loader, test_loader = cifar10(
+if args.dataset == "cifar10": dset = cifar10
+elif args.dataset == "svhn": dset = svhn
+label_loader, unlabel_loader, test_loader = dset(
         args.data_path, args.batch_size, args.num_workers, args.num_label
         )
 # Build model and optimizer
