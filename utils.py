@@ -23,6 +23,21 @@ def compute_lr(lr, decay_type, curr_step, total_steps, gamma, milestones):
 def compute_weight(weight, step, total_steps):
     return weight * (1. - math.cos(step / total_steps * math.pi)) / 2.
 
+def ZCA(X):
+
+    import numpy as np
+
+    X = X.reshape((-1, np.product(X.shape[1:])))
+    X_centered = X - np.mean(X, axis=0)
+    Sigma = np.dot(X_centered.T, X_centered) / X_centered.shape[0]
+    U, Lambda, _ = np.linalg.svd(Sigma)
+    W = np.dot(U, np.dot(np.diag(1.0 / np.sqrt(Lambda + 1e-5)), U.T))
+
+    X_ZCA = np.dot(X_centered, W.T)
+    X_ZCA_rescaled = (X_ZCA - X_ZCA.min()) / (X_ZCA.max() - X_ZCA.min())
+
+    return X_ZCA_rescaled
+
 class Logger():
     def __init__(self, path="log.txt"):
         self.logger = logging.getLogger("Logger")
