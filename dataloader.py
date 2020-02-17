@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader, SubsetRandomSampler
 import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 
-from .utils import ZCA
+from utils import ZCA
 
 def data_gen(loader):
     while True:
@@ -46,7 +46,7 @@ def cifar10(path='data/cifar10', bs=100, num_workers=8, label_num=4000, aug=None
     
     return data_gen(label_loader), data_gen(unlabel_loader), test_loader
 
-def svhn(path='data/cifar10', bs=100, num_workers=8, label_num=4000):
+def svhn(path='data/cifar10', bs=100, num_workers=8, label_num=4000, aug=None):
     train_transform = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
@@ -55,6 +55,9 @@ def svhn(path='data/cifar10', bs=100, num_workers=8, label_num=4000):
             ])
     train_dataset = dsets.SVHN(root=path, split='train', download=True,
                                transform=train_transform)
+    if aug == 'zca':
+        train_dataset.train_data = ZCA(train_dataset.train_data)
+
     index = list(range(len(train_dataset)))
     random.shuffle(index)
     label_index = SubsetRandomSampler(index[:label_num])
@@ -70,6 +73,9 @@ def svhn(path='data/cifar10', bs=100, num_workers=8, label_num=4000):
             ])
     test_dataset = dsets.SVHN(root=path, split='test', download=True,
                               transform=test_transform)
+    if aug == 'zca':
+        test_dataset.test_data = ZCA(test_dataset.test_data)
+
     test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False,
                              num_workers=num_workers)
 
