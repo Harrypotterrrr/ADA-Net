@@ -1,9 +1,5 @@
-import os, logging, shutil, math
+import os, logging, shutil, math, torch
 from os.path import exists, join
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Function
 
 def make_folder(path):
     if not exists(path):
@@ -79,103 +75,33 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-class CrossEntropy(nn.Module):
-    def __init__(self, reduction='mean'):
-        super(CrossEntropy, self).__init__()
-        self.log_softmax = nn.LogSoftmax(dim=1)
-        assert reduction in ['none', 'sum', 'mean'], "args: `reduction` should be 'none' or 'sum' or 'mean'."
-        self.reduction = reduction
+class CosAnnealingLR(object):
+    def __init__(self, loader_len, epochs, lr_max, warmup_epochs=0, last_epoch=-1):
+        max_iters = loader_len * epochs
+        warmup_iters = loader_len * warmup_epochs
+        assert lr_max >= 0
+        assert warmup_iters >= 0
+        assert max_iters >= 0 and max_iters >= warmup_iters
+
+        self.max_iters = max_iters
+        self.lr_max = lr_max
+        self.warmup_iters = warmup_iters
+        self.last_epoch = last_epoch
+
+        assert self.last_epoch >= -1
+        self.iter_counter = (self.last_epoch+1) * loader_len
+        self.lr = 0 
     
-    def forward(self, x, target):
-        r"""
-        Params: x      -- of Size [bs, n_classes] (logits before Softmax)
-                target -- of Size [bs, n_classes] (target probabilities)
-        """
-        logit = -self.log_softmax(x)
-        losses = torch.sum(logit * target, dim=1)
-        if self.reduction == "none":
-            return losses
-        elif self.reduction == "sum":
-            return torch.sum(losses)
-        elif self.reduction == "mean":
-            return torch.mean(losses)
+    def restart(self, lr_max=None):
+        if lr_max:
+            self.lr_max = lr_max
+        self.iter_counter = 0 
 
-class KLDivergence(nn.Module):
-    def __init__(self, reduction='mean'):
-        super(KLDivergence, self).__init__()
-        self.log_softmax = nn.LogSoftmax(dim=1)
-        assert reduction in ['none', 'sum', 'mean'], "args: `reduction` should be 'none' or 'sum' or 'mean'."
-        self.reduction = reduction
-    
-    def forward(self, x, target):
-        r"""
-        Params: x      -- of Size [bs, n_classes] (logits before Softmax)
-                target -- of Size [bs, n_classes] (target probabilities)
-        """
-        logit = self.log_softmax(x)
-        losses = torch.sum(target * (torch.log(target) - logit), dim=1)
-        if self.reduction == "none":
-            return losses
-        elif self.reduction == "sum":
-            return torch.sum(losses)
-        elif self.reduction == "mean":
-            return torch.mean(losses)
-
-class ClippedCrossEntropy(Function):
-    @staticmethod
-    def forward(ctx, x, target):
-        ctx.save_for_backward(x, target)
-        logit = F.log_softmax(x, dim=1, _stacklevel=5)
-        loss = F.kl_div(logit, target, reduction='batchmean')
-        return loss
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
-            x, target = ctx.saved_variables
-            x = F.softmax(x, dim=1, _stacklevel=5)
-            target_over_x = target / x
-        
-        grad_x, grad_target = None, None
-        if ctx.needs_input_grad[0]:
-            grad_x = -target_over_x / x.size(0)
-            grad_x -= torch.mean(grad_x, dim=1, keepdim=True)
-        if ctx.needs_input_grad[1]:
-            grad_target = torch.log(target_over_x) / x.size(0)
-            grad_target -= torch.mean(grad_target, dim=1, keepdim=True)
-        return grad_x, grad_target
-               
-class ClippedKLDivergence(Function):
-    @staticmethod
-    def forward(ctx, x, target):
-        ctx.save_for_backward(x, target)
-        logit = F.log_softmax(x, dim=1, _stacklevel=5)
-        loss = F.kl_div(logit, target, reduction='batchmean')
-        return loss
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
-            x, target = ctx.saved_variables
-            # print("before softmax")
-            # print(x)
-            x = F.softmax(x, dim=1, _stacklevel=5)
-            target_over_x = target / (x + 1e-8)
-            # print("after softmax")
-            # print(x)
-        
-        grad_x, grad_target = None, None
-        if ctx.needs_input_grad[0]:
-            grad_x = -target_over_x / x.size(0)
-            # print("x")
-            # print(grad_x)
-            grad_x -= torch.mean(grad_x, dim=1, keepdim=True)
-        if ctx.needs_input_grad[1]:
-            grad_target = torch.log(target_over_x + 1e-8) / x.size(0)
-            # print("target")
-            # print(grad_target)
-            grad_target -= torch.mean(grad_target, dim=1, keepdim=True)
-        return grad_x, grad_target
-
-clipped_cross_entropy = ClippedCrossEntropy.apply
-clipped_kl_divergence = ClippedKLDivergence.apply
+    def step(self):
+        self.iter_counter += 1
+        if self.warmup_iters > 0 and self.iter_counter <= self.warmup_iters:
+            self.lr = float(self.iter_counter / self.warmup_iters) * self.lr_max
+        else:
+            self.lr = (1 + math.cos((self.iter_counter-self.warmup_iters) / \
+                                    (self.max_iters - self.warmup_iters) * math.pi)) / 2 * self.lr_max
+        return self.lr

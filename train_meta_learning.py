@@ -217,6 +217,7 @@ def main():
         # Update AverageMeter stats
         data_times.update(data_end - data_start)
         batch_times.update(time.time() - data_end)
+        label_losses.update(label_loss.item(), label_img.size(0))
         unlabel_losses.update(unlabel_loss.item(), unlabel_img.size(0))
         label_acc.update(label_top1.item(), label_img.size(0))
         unlabel_acc.update(unlabel_top1.item(), unlabel_img.size(0))
