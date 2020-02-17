@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser()
 # Configuration
 parser.add_argument('--num_label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
+parser.add_argument('--aug', type=str, default=None)
 # Training setting
 parser.add_argument('--total_steps', type=int, default=120000, help='Total training epochs')
 parser.add_argument('--start_step', type=int, default=0, help='Start step (for resume)')
@@ -48,7 +49,7 @@ torch.backends.cudnn.benchmark = True
 # Define dataloader
 logger.info("Loading data...")
 label_loader, unlabel_loader, test_loader = cifar10(
-        args.data_path, args.batch_size, args.num_workers, args.num_label
+        args.data_path, args.batch_size, args.num_workers, args.num_label, args.aug
         )
 
 # Build model

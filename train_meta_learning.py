@@ -14,6 +14,8 @@ parser = argparse.ArgumentParser()
 # Configuration
 parser.add_argument('--num-label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
+parser.add_argument('--aug', type=str, default=None)
+
 # Training setting
 parser.add_argument('--use-label', action='store_true', help='Directly use label data')
 parser.add_argument('--auto-weight', action='store_true', help='Automatically adjust the weight for unlabel data')
@@ -65,7 +67,7 @@ logger.info("Loading data...")
 if args.dataset == "cifar10": dset = cifar10
 elif args.dataset == "svhn": dset = svhn
 label_loader, unlabel_loader, test_loader = dset(
-        args.data_path, args.batch_size, args.num_workers, args.num_label
+        args.data_path, args.batch_size, args.num_workers, args.num_label, args.aug
         )
 # Build model and optimizer
 logger.info("Building model and optimzer...")

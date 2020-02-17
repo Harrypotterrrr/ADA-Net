@@ -17,4 +17,5 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta_learning.py --save-path "results/pri
                                                         --inner-lr "0.1" \
                                                         --inner-milestones "[150000]" \
                                                         --type "0" \
+                                                        --aug "zca" \
                                                         --print-freq "20";
