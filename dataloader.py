@@ -21,7 +21,7 @@ def cifar10(path='data/cifar10', bs=100, num_workers=8, label_num=4000, aug=None
     train_dataset = dsets.CIFAR10(root=path, train=True, download=True,
                                       transform=train_transform)
     if aug == 'zca':
-        train_dataset.train_data = ZCA(train_dataset.train_data)
+        train_dataset.data = ZCA(train_dataset.data)
 
     index = list(range(len(train_dataset)))
     random.shuffle(index)
@@ -40,7 +40,7 @@ def cifar10(path='data/cifar10', bs=100, num_workers=8, label_num=4000, aug=None
                                  transform=test_transform)
 
     if aug == 'zca':
-        test_dataset.test_data = ZCA(test_dataset.test_data)
+        test_dataset.data = ZCA(test_dataset.data)
     test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False,
                              num_workers=num_workers)
     
@@ -56,7 +56,7 @@ def svhn(path='data/cifar10', bs=100, num_workers=8, label_num=4000, aug=None):
     train_dataset = dsets.SVHN(root=path, split='train', download=True,
                                transform=train_transform)
     if aug == 'zca':
-        train_dataset.train_data = ZCA(train_dataset.train_data)
+        train_dataset.data = ZCA(train_dataset.data)
 
     index = list(range(len(train_dataset)))
     random.shuffle(index)
@@ -74,7 +74,7 @@ def svhn(path='data/cifar10', bs=100, num_workers=8, label_num=4000, aug=None):
     test_dataset = dsets.SVHN(root=path, split='test', download=True,
                               transform=test_transform)
     if aug == 'zca':
-        test_dataset.test_data = ZCA(test_dataset.test_data)
+        test_dataset.data = ZCA(test_dataset.data)
 
     test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False,
                              num_workers=num_workers)
