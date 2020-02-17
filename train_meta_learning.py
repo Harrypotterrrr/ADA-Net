@@ -7,14 +7,13 @@ from tensorboardX import SummaryWriter
 
 from dataloader import cifar10, svhn
 from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_lr, compute_weight
-from utils import CrossEntropy, KLDivergence, clipped_cross_entropy, clipped_kl_divergence
 from model import ConvLarge 
 
 parser = argparse.ArgumentParser()
 # Configuration
 parser.add_argument('--num-label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
-parser.add_argument('--aug', type=str, default=None)
+parser.add_argument('--aug', type=str, default=None, help='Apply ZCA augmentation')
 
 # Training setting
 parser.add_argument('--use-label', action='store_true', help='Directly use label data')
