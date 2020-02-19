@@ -1,12 +1,11 @@
-import os, argparse, torch, time, random
-import torch.nn as nn
+import os, argparse, torch, math, time, random
 import torch.nn.functional as F
 from torch.optim import SGD
 from torch.distributions import Beta
 from tensorboardX import SummaryWriter
 
 from dataloader import cifar10, svhn
-from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_lr, compute_weight
+from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_weight
 from model import ConvLarge 
 
 parser = argparse.ArgumentParser()
@@ -16,23 +15,29 @@ parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10'
 parser.add_argument('--aug', type=str, default=None, help='Apply ZCA augmentation')
 
 # Training setting
-parser.add_argument('--use-label', action='store_true', help='Directly use label data')
+parser.add_argument('--additional', type=str, default='None', choices=['None', 'label', 'unlabel'], help='Use additional data for training')
 parser.add_argument('--auto-weight', action='store_true', help='Automatically adjust the weight for unlabel data')
-parser.add_argument('--unlabel-weight', type=float, default=1., help='re-weighting scalar for unlabel data')
+parser.add_argument('--weight', type=float, default=1., help='re-weighting scalar for the additional loss')
 parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
 parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
 parser.add_argument('--total-steps', type=int, default=120000, help='Total training epochs')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
 parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
 parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for gradient estimation')
-parser.add_argument('--lr', type=float, default=0.1, help='Initial learning rate')
-parser.add_argument('--lr-decay', type=str, default='step', choices=['step', 'linear', 'cosine'], help='Learning rate annealing strategy')
-parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate annealing multiplier')
-parser.add_argument('--milestones', type=eval, default=[60000, 90000], help='Learning rate annealing steps')
-parser.add_argument('--inner-lr', type=float, default=0.1, help='Initial inner learning rate')
-parser.add_argument('--inner-lr-decay', type=str, default='step', choices=['step', 'linear', 'cosine'], help='Inner learning rate annealing strategy')
-parser.add_argument('--inner-gamma', type=float, default=0.1, help='Inner learning rate annealing multiplier')
-parser.add_argument('--inner-milestones', type=eval, default=[60000, 90000], help='Inner learning rate annealing steps')
+parser.add_argument('--lr', type=float, default=0.1, help='Maximum learning rate')
+parser.add_argument('--full-interval', type=int, default=84000, help='Number of iterations in the full cosine annealing')
+parser.add_argument('--cycle-interval', type=int, default=12000, help='Number of iterations in each small cosine annealing')
+parser.add_argument('--num-cycles', type=int, default=33, help='Number of repeats of the small cosine annealing')
+parser.add_argument('--fastswa-freq', type=int, default=1200, help='Frequency of fastSWA')
+parser.add_argument('--warmup', type=int, default=4000, help='Warmup iterations')
+parser.add_argument('--const-steps', type=int, default=0, help='Number of iterations of constant lr')
+# parser.add_argument('--lr-decay', type=str, default='step', choices=['step', 'linear', 'cosine'], help='Learning rate annealing strategy')
+# parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate annealing multiplier')
+# parser.add_argument('--milestones', type=eval, default=[60000, 90000], help='Learning rate annealing steps')
+# parser.add_argument('--inner-lr', type=float, default=0.1, help='Initial inner learning rate')
+# parser.add_argument('--inner-lr-decay', type=str, default='step', choices=['step', 'linear', 'cosine'], help='Inner learning rate annealing strategy')
+# parser.add_argument('--inner-gamma', type=float, default=0.1, help='Inner learning rate annealing multiplier')
+# parser.add_argument('--inner-milestones', type=eval, default=[60000, 90000], help='Inner learning rate annealing steps')
 parser.add_argument('--type', default='0', type=str, choices=['0', '1', '2', '3'], help='normalization type of updated labels')
 parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
@@ -47,6 +52,9 @@ parser.add_argument('--data-path', type=str, default='./data', help='Data path')
 parser.add_argument('--save-path', type=str, default='./results/tmp', help='Save path')
 args = parser.parse_args()
 
+# Compute total iteration number and record start iteration
+args.total_steps = args.warmup + args.const_steps + args.full_interval + args.cycle_interval * args.num_cycles
+args.record_start = args.warmup + args.const_steps + args.full_interval - args.cycle_interval
 # Set random seed
 random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -89,6 +97,17 @@ if args.resume is not None:
     else:
         logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
+def compute_lr(step):
+    if step < args.warmup:
+        lr = args.lr * step / args.warmup
+    elif step < args.warmup + args.const_steps:
+        lr = args.lr
+    elif step < args.warmup + args.const_steps + args.full_interval:
+        lr = args.lr * ( 1. + math.cos( (step-args.warmup-args.const_steps) / args.full_interval *  math.pi ) ) / 2.
+    else:
+        lr = args.lr * ( 1. + math.cos( ( args.full_interval - args.cycle_interval + ((step-args.record_start)%args.cycle_interval) ) / args.full_interval *  math.pi)) / 2.
+    return lr
+
 def main():
     data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
     best_acc = 0.
@@ -106,15 +125,16 @@ def main():
         _label_gt = F.one_hot(label_gt, num_classes=10).float()
         data_end = time.time()
         
+        ### TODO: set inner-lr == lr for now.
         # Compute the inner learning rate and outer learning rate
-        inner_lr = compute_lr(args.inner_lr, args.inner_lr_decay, step, args.total_steps, args.inner_gamma, args.inner_milestones)
-        lr = compute_lr(args.lr, args.lr_decay, step, args.total_steps, args.gamma, args.milestones)
+        # inner_lr = compute_lr(args.inner_lr, args.inner_lr_decay, step, args.total_steps, args.inner_gamma, args.inner_milestones)
+        lr = inner_lr = compute_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         if args.auto_weight:
-            unlabel_weight = compute_weight(args.unlabel_weight, step, args.total_steps)
+            weight = compute_weight(args.weight, step, args.total_steps)
         else:
-            unlabel_weight = args.unlabel_weight
+            weight = args.weight
 
         ### First-order Approximation ###
         _concat = lambda xs: torch.cat([x.view(-1) for x in xs])
@@ -123,7 +143,6 @@ def main():
         # Forward label data and perform backward pass
         label_pred = model(label_img)
         label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
-        # label_loss = clipped_kl_divergence(label_pred, _label_gt)
         dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
         
         ### TODO: implement inner-iter
@@ -193,20 +212,22 @@ def main():
                 interp_img = (label_img * _alpha + unlabel_img * (1. - _alpha)).detach()
                 interp_pseudo_gt = (_label_gt * alpha + unlabel_pseudo_gt * (1. - alpha)).detach()
             interp_pred = model(interp_img)
-            unlabel_loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='batchmean')
+            loss = unlabel_loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='batchmean')
         else:
             # Compute loss with `unlabel_pseudo_gt`
             unlabel_pred = model(unlabel_img)
-            unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
-            # unlabel_loss = clipped_kl_divergence(unlabel_pred, unlabel_pseudo_gt)
+            loss = unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
         
-        # Use label data
-        if args.use_label:
-            label_pred = model(label_img) 
+        if args.additional == 'label':
+            # Additionally use label data
+            label_pred = model(label_img)
             label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
-            loss = label_loss + unlabel_weight * unlabel_loss
-        else:
-            loss = unlabel_loss
+            loss = label_loss + weight * loss
+        elif args.additional == 'unlabel' and args.mix:
+            # Additionally use unlabel data
+            unlabel_pred = model(unlabel_img)
+            unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+            loss = loss + weight * unlabel_loss
         
         # One SGD step
         optimizer.zero_grad()
@@ -228,7 +249,7 @@ def main():
                         "Lloss: {llosses.val:.3f} (avg {llosses.avg:.3f}) Uloss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
                         "Lacc: {label.val:.3f} (avg {label.avg:.3f}) Uacc: {unlabel.val:.3f} (avg {unlabel.avg:.3f}) "
                         "OLR: {1:.4f} ILR: {2:.4f} W: {3:.3f}".format(
-                                step, lr, inner_lr, unlabel_weight,
+                                step, lr, inner_lr, weight,
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
                                 ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
                                 ))
@@ -245,7 +266,7 @@ def main():
                 'model': model.state_dict(),
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict()
-                }, is_best, path=args.save_path, filename="checkpoint.pth")
+                }, is_best, path=args.save_path, filename="checkpoint-epoch%04d.pth"%(step//args.test_freq))
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
@@ -253,7 +274,7 @@ def main():
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
             writer.add_scalar('train/lr', lr, step)
             writer.add_scalar('train/inner-lr', inner_lr, step)
-            writer.add_scalar('train/weight', unlabel_weight, step)
+            writer.add_scalar('train/weight', weight, step)
             writer.add_scalar('test/accuracy', acc, step)
             # Reset the AverageMeters
             label_losses.reset()
