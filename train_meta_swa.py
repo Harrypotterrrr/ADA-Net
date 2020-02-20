@@ -243,7 +243,7 @@ def main():
                 'model': model.state_dict(),
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict()
-                }, is_best, path=join(args.save_path, "checkpoint"), filename="checkpoint-epoch%06d.pth"%step)
+                }, is_best, path=join(args.save_path, "checkpoints"), filename="checkpoint-epoch%06d.pth"%step)
             
             if (step > args.record_start and (step - args.record_start + 1) % args.cycle_interval == 0) or step == args.total_steps - 1:
                 # Evaluate and save the SWA model
