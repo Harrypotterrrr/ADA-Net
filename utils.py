@@ -78,33 +78,33 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-class CosAnnealingLR(object):
-    def __init__(self, loader_len, epochs, lr_max, warmup_epochs=0, last_epoch=-1):
-        max_iters = loader_len * epochs
-        warmup_iters = loader_len * warmup_epochs
-        assert lr_max >= 0
-        assert warmup_iters >= 0
-        assert max_iters >= 0 and max_iters >= warmup_iters
+class WeightSWA(object):
+    def __init__(self, swa_model):
+        self.num_updates = 0
+        self.swa_model = swa_model # assume that the parameters are to be discarded at the first update
 
-        self.max_iters = max_iters
-        self.lr_max = lr_max
-        self.warmup_iters = warmup_iters
-        self.last_epoch = last_epoch
-
-        assert self.last_epoch >= -1
-        self.iter_counter = (self.last_epoch+1) * loader_len
-        self.lr = 0 
-    
-    def restart(self, lr_max=None):
-        if lr_max:
-            self.lr_max = lr_max
-        self.iter_counter = 0 
-
-    def step(self):
-        self.iter_counter += 1
-        if self.warmup_iters > 0 and self.iter_counter <= self.warmup_iters:
-            self.lr = float(self.iter_counter / self.warmup_iters) * self.lr_max
+    def update(self, student_model):
+        self.num_updates += 1
+        print("Updating SWA. Current num_updates = %d"%self.num_updates)
+        if self.num_updates == 1:
+            self.swa_model.load_state_dict(student_model.state_dict())
         else:
-            self.lr = (1 + math.cos((self.iter_counter-self.warmup_iters) / \
-                                    (self.max_iters - self.warmup_iters) * math.pi)) / 2 * self.lr_max
-        return self.lr
+            inv = 1. / float(self.num_updates)
+            for swa_p, src_p in zip(self.swa_model.parameters(), student_model.parameters()):
+                swa_p.data.sub_(inv*swa_p.data)
+                swa_p.data.add_(inv*src_p.data)
+    
+    def reset(self):
+        self.num_updates = 0
+
+@torch.no_grad()
+def update_batchnorm(model, label_loader, unlabel_loader, num_iters=100):
+    model.train()
+    for i in range(num_iters):
+        label_img, _ = next(label_loader)
+        unlabel_img, _ = next(unlabel_loader)
+        label_img = label_img.cuda()
+        unlabel_img = unlabel_img.cuda()
+        model(label_img)
+        model(unlabel_img)
+        

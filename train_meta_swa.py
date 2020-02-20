@@ -1,11 +1,12 @@
 import os, argparse, torch, math, time, random
+from os.path import join, isfile
 import torch.nn.functional as F
 from torch.optim import SGD
 from torch.distributions import Beta
 from tensorboardX import SummaryWriter
 
 from dataloader import cifar10, svhn
-from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_weight
+from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_weight, WeightSWA, update_batchnorm
 from model import ConvLarge 
 
 parser = argparse.ArgumentParser()
@@ -20,7 +21,6 @@ parser.add_argument('--auto-weight', action='store_true', help='Automatically ad
 parser.add_argument('--weight', type=float, default=1., help='re-weighting scalar for the additional loss')
 parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
 parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
-parser.add_argument('--total-steps', type=int, default=120000, help='Total training epochs')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
 parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
 parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for gradient estimation')
@@ -31,14 +31,6 @@ parser.add_argument('--num-cycles', type=int, default=33, help='Number of repeat
 parser.add_argument('--fastswa-freq', type=int, default=1200, help='Frequency of fastSWA')
 parser.add_argument('--warmup', type=int, default=4000, help='Warmup iterations')
 parser.add_argument('--const-steps', type=int, default=0, help='Number of iterations of constant lr')
-# parser.add_argument('--lr-decay', type=str, default='step', choices=['step', 'linear', 'cosine'], help='Learning rate annealing strategy')
-# parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate annealing multiplier')
-# parser.add_argument('--milestones', type=eval, default=[60000, 90000], help='Learning rate annealing steps')
-# parser.add_argument('--inner-lr', type=float, default=0.1, help='Initial inner learning rate')
-# parser.add_argument('--inner-lr-decay', type=str, default='step', choices=['step', 'linear', 'cosine'], help='Inner learning rate annealing strategy')
-# parser.add_argument('--inner-gamma', type=float, default=0.1, help='Inner learning rate annealing multiplier')
-# parser.add_argument('--inner-milestones', type=eval, default=[60000, 90000], help='Inner learning rate annealing steps')
-parser.add_argument('--type', default='0', type=str, choices=['0', '1', '2', '3'], help='normalization type of updated labels')
 parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
 parser.add_argument('--num-workers', type=int, default=4, help='Number of workers')
@@ -53,8 +45,8 @@ parser.add_argument('--save-path', type=str, default='./results/tmp', help='Save
 args = parser.parse_args()
 
 # Compute total iteration number and record start iteration
-args.total_steps = args.warmup + args.const_steps + args.full_interval + args.cycle_interval * args.num_cycles
-args.record_start = args.warmup + args.const_steps + args.full_interval - args.cycle_interval
+args.total_steps = args.warmup + args.const_steps + args.full_interval + args.cycle_interval * (args.num_cycles-2)
+args.record_start = args.warmup + args.const_steps + args.full_interval - 2 * args.cycle_interval
 # Set random seed
 random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -64,7 +56,8 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 # Create directories if not exist
 make_folder(args.save_path)
-logger = Logger(os.path.join(args.save_path, 'log.txt'))
+make_folder(join(args.save_path, "checkpoints"))
+logger = Logger(join(args.save_path, 'log.txt'))
 writer = SummaryWriter(log_dir=args.save_path)
 logger.info('Called with args:')
 logger.info(args)
@@ -79,14 +72,21 @@ label_loader, unlabel_loader, test_loader = dset(
 # Build model and optimizer
 logger.info("Building model and optimzer...")
 model = ConvLarge(stochastic=True).cuda()
+swa_model = ConvLarge(stochastic=True).cuda()
+for param in swa_model.parameters(): param.detach_()
+fastswa_model = ConvLarge(stochastic=True).cuda()
+for param in fastswa_model.parameters(): param.detach_()
+
 optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+swa_optim = WeightSWA(swa_model)
+fastswa_optim = WeightSWA(fastswa_model)
 logger.info("Model:\n%s\nOptimizer:\n%s" % (str(model), str(optimizer)))
 # Optionally build beta distribution
 if args.mix_up:
     beta_distribution = Beta(torch.tensor([args.alpha]), torch.tensor([args.alpha]))
 # Optionally resume from a checkpoint
 if args.resume is not None:
-    if os.path.isfile(args.resume):
+    if isfile(args.resume):
         logger.info("=> loading checkpoint '{}'".format(args.resume))
         checkpoint = torch.load(args.resume)
         args.start_step = checkpoint['step']
@@ -102,15 +102,15 @@ def compute_lr(step):
         lr = args.lr * step / args.warmup
     elif step < args.warmup + args.const_steps:
         lr = args.lr
-    elif step < args.warmup + args.const_steps + args.full_interval:
+    elif step < args.record_start:
         lr = args.lr * ( 1. + math.cos( (step-args.warmup-args.const_steps) / args.full_interval *  math.pi ) ) / 2.
     else:
-        lr = args.lr * ( 1. + math.cos( ( args.full_interval - args.cycle_interval + ((step-args.record_start)%args.cycle_interval) ) / args.full_interval *  math.pi)) / 2.
+        lr = args.lr * ( 1. + math.cos( ( args.full_interval - 2.*args.cycle_interval + ((step-args.record_start)%args.cycle_interval) ) / args.full_interval *  math.pi)) / 2.
     return lr
 
 def main():
     data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
-    best_acc = 0.
+    best_acc, swa_best_acc, fastswa_best_acc = 0., 0., 0.
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
         # Load data and distribute to devices
@@ -127,7 +127,6 @@ def main():
         
         ### TODO: set inner-lr == lr for now.
         # Compute the inner learning rate and outer learning rate
-        # inner_lr = compute_lr(args.inner_lr, args.inner_lr_decay, step, args.total_steps, args.inner_gamma, args.inner_milestones)
         lr = inner_lr = compute_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
@@ -165,47 +164,17 @@ def main():
                 p.data.add_(epsilon, g)
             # Compute (approximated) gradients w.r.t pseudo-gt of unlabel data
             unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
-            # Normalization alternatives
-            if args.type == '0':
-                # Normal
-                unlabel_grad.div_(2.*epsilon)
-                unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
-                # Post-process
-                torch.relu_(unlabel_pseudo_gt)
-                sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
-                unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
-            elif args.type == '1':
-                # Gradient Normalization
-                unlabel_grad /= torch.norm(unlabel_grad, p=2, dim=1, keepdim=True)
-                unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
-                # Post-process
-                torch.relu_(unlabel_pseudo_gt)
-                sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
-                unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
-            elif args.type == '2':
-                # Gradient clip
-                unlabel_grad.div_(2.*epsilon)
-                unlabel_grad -= torch.mean(unlabel_grad, dim=1, keepdim=True)
-                inner_lrs = torch.clamp(torch.min(unlabel_pseudo_gt / torch.clamp(unlabel_grad, min=1e-8), dim=1, keepdim=True)[0], max=inner_lr)
-                unlabel_pseudo_gt.sub_(inner_lrs * unlabel_grad)
-                assert torch.all(unlabel_pseudo_gt >= -1e-4)
-                assert torch.all(torch.abs(unlabel_pseudo_gt.norm(p=1, dim=1) - 1.) < 1e-4)
-                torch.relu_(unlabel_pseudo_gt)
-                F.normalize(unlabel_pseudo_gt, p=1, dim=1, out=unlabel_pseudo_gt)
-            elif args.type == '3':
-                # Gradient normaliztion and clip
-                unlabel_grad -= torch.mean(unlabel_grad, dim=1, keepdim=True)
-                unlabel_grad /= torch.norm(unlabel_grad, p=2, dim=1, keepdim=True)
-                inner_lrs = torch.clamp(torch.min(unlabel_pseudo_gt / torch.clamp(unlabel_grad, min=1e-8), dim=1, keepdim=True)[0], max=inner_lr)
-                unlabel_pseudo_gt.sub_(inner_lrs * unlabel_grad)
-                assert torch.all(unlabel_pseudo_gt >= -1e-4)
-                assert torch.all(torch.abs(unlabel_pseudo_gt.norm(p=1, dim=1) - 1.) < 1e-4)
-                torch.relu_(unlabel_pseudo_gt)
-                F.normalize(unlabel_pseudo_gt, p=1, dim=1, out=unlabel_pseudo_gt)
+            unlabel_grad.div_(2.*epsilon)
+            unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
+            # Label normalization
+            torch.relu_(unlabel_pseudo_gt)
+            sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
+            unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
 
         # Training mode
         model.train()
         if args.mix_up:
+            # Adopt mix-up augmentation
             with torch.no_grad():
                 alpha = beta_distribution.sample((args.batch_size,)).cuda()
                 _alpha = alpha.view(-1, 1, 1, 1)
@@ -255,27 +224,60 @@ def main():
                                 ))
         # Test and save model
         if (step + 1) % args.test_freq == 0 or step == args.total_steps - 1:
-            acc = evaluate()
+            acc = evaluate(model)
+            # Write to the tfboard
+            writer.add_scalar('train/label-acc', label_acc.avg, step)
+            writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
+            writer.add_scalar('train/label-loss', label_losses.avg, step)
+            writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
+            writer.add_scalar('train/lr', lr, step)
+            writer.add_scalar('train/inner-lr', inner_lr, step)
+            writer.add_scalar('train/weight', weight, step)
+            writer.add_scalar('test/accuracy', acc, step)
             # remember best accuracy and save checkpoint
             is_best = acc > best_acc
-            if is_best:
-                best_acc = acc
+            if is_best: best_acc = acc
             logger.info("Best Accuracy: %.5f" % best_acc)
             save_checkpoint({
                 'step': step + 1,
                 'model': model.state_dict(),
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict()
-                }, is_best, path=args.save_path, filename="checkpoint-epoch%04d.pth"%(step//args.test_freq))
-            # Write to the tfboard
-            writer.add_scalar('train/label-acc', label_acc.avg, step)
-            writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
-            writer.add_scalar('train/label-loss%d', label_losses.avg, step)
-            writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
-            writer.add_scalar('train/lr', lr, step)
-            writer.add_scalar('train/inner-lr', inner_lr, step)
-            writer.add_scalar('train/weight', weight, step)
-            writer.add_scalar('test/accuracy', acc, step)
+                }, is_best, path=join(args.save_path, "checkpoint"), filename="checkpoint-epoch%06d.pth"%step)
+            
+            if (step > args.record_start and (step - args.record_start + 1) % args.cycle_interval == 0) or step == args.total_steps - 1:
+                # Evaluate and save the SWA model
+                swa_optim.update(model)
+                update_batchnorm(swa_model, label_loader, unlabel_loader)
+                logger.info("Evaluating the SWA model:")
+                swa_acc = evaluate(swa_model)
+                writer.add_scalar('test/swa-accuracy', swa_acc, step)
+                
+                is_best = swa_acc > swa_best_acc
+                if is_best: swa_beat_acc = swa_acc
+                logger.info("Best SWA Accuracy: %.5f" % swa_beat_acc)
+                save_checkpoint({
+                    'step': step + 1,
+                    'model': swa_model.state_dict(),
+                    'best_acc': swa_beat_acc
+                    }, is_best, path=args.save_path, filename="checkpoint-swa.pth")
+            
+            if (step > args.record_start and (step - args.record_start + 1) % args.fastswa_freq == 0) or step == args.total_steps - 1:
+                # Evaluate and save the fastSWA model
+                fastswa_optim.update(model)
+                update_batchnorm(fastswa_model, label_loader, unlabel_loader)
+                logger.info("Evaluating the fastSWA model:")
+                fastswa_acc = evaluate(fastswa_model)
+                writer.add_scalar('test/fastswa-accuracy', fastswa_acc, step)
+                
+                is_best = fastswa_acc > fastswa_best_acc
+                if is_best: fastswa_best_acc = fastswa_acc
+                logger.info("Best fastSWA Accuracy: %.5f" % fastswa_best_acc)
+                save_checkpoint({
+                    'step': step + 1,
+                    'model': fastswa_model.state_dict(),
+                    'best_acc': fastswa_best_acc
+                    }, is_best, path=args.save_path, filename="checkpoint-fastswa.pth")
             # Reset the AverageMeters
             label_losses.reset()
             unlabel_losses.reset()
@@ -283,7 +285,7 @@ def main():
             unlabel_acc.reset()
 
 @torch.no_grad()
-def evaluate():
+def evaluate(model):
     batch_time, losses, acc = [AverageMeter() for _ in range(3)]
     # switch to evaluate mode
     model.eval()
@@ -310,7 +312,8 @@ def evaluate():
     logger.info(' * Accuracy {acc.avg:.5f}'.format(acc=acc))
     return acc.avg
 
-# Train and evaluate the model
-main()
-writer.close()
-logger.close()
+if __name__ == "__main__":
+    # Train and evaluate the model
+    main()
+    writer.close()
+    logger.close()
