@@ -12,7 +12,6 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta_swa.py \
         --fastswa-freq "1200" \
         --warmup "4000" \
         --const-steps "0" \
-        --type "0" \
         --print-freq "20";
 
 CUDA_VISIBLE_DEVICES='1' python3 train_meta_swa.py \
@@ -29,7 +28,6 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta_swa.py \
         --fastswa-freq "1200" \
         --warmup "4000" \
         --const-steps "160000" \
-        --type "0" \
         --print-freq "20";
 
 CUDA_VISIBLE_DEVICES='2' python3 train_meta_swa.py \
