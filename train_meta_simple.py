@@ -25,18 +25,16 @@ parser.add_argument('--alpha', type=float, default=1., help='Concentration param
 parser.add_argument('--total-steps', type=int, default=400000, help='Start step (for resume)')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
 parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
-parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for gradient estimation')
+parser.add_argument('--multiplier', type=float, default=0.1, help='epsilon for gradient estimation')
 parser.add_argument('--lr', type=float, default=0.1, help='Maximum learning rate')
 parser.add_argument('--warmup', type=int, default=4000, help='Warmup iterations')
 parser.add_argument('--const-steps', type=int, default=0, help='Number of iterations of constant lr')
 parser.add_argument('--lr-decay', type=str, default='step', choices=['step', 'linear', 'cosine'], help='Learning rate annealing strategy')
 parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate annealing multiplier')
 parser.add_argument('--milestones', type=eval, default=[300000, 350000], help='Learning rate annealing steps')
-parser.add_argument('--fix-inner', action='store_true', help='Fix inner learning rate')
 parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
 parser.add_argument('--num-workers', type=int, default=4, help='Number of workers')
-parser.add_argument('--consistency', type=str, default='kl', choices=['kl', 'mse'], help='Consistency loss type')
 parser.add_argument('--resume', type=str, default=None, help='Resume model from a checkpoint')
 parser.add_argument('--seed', type=int, default=1234, help='Random seed for reproducibility')
 # Misc
@@ -124,13 +122,11 @@ def main():
         
         # Compute the inner learning rate and outer learning rate
         lr = compute_lr(step)
-        inner_lr = args.lr if args.fix_inner else lr
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         weight = compute_weight(args.weight, step, args.total_steps) if args.auto_weight else args.weight
 
         ### First-order Approximation ###
-        _concat = lambda xs: torch.cat([x.view(-1) for x in xs])
         # Evaluation model
         model.eval()
         # Forward label data and perform backward pass
@@ -141,37 +137,15 @@ def main():
         
         ### TODO: implement inner-iter
         with torch.no_grad():
-            # Compute the unlabel pseudo-gt
-            unlabel_pred = model(unlabel_img)
-            unlabel_pseudo_gt = F.softmax(unlabel_pred, dim=1)
-            # Compute step size for first-order approximation
-            epsilon = args.epsilon / torch.norm(_concat(dtheta))
-            # Forward finite difference
+            # Vallina SGD step
             for p, g in zip(model.parameters(), dtheta):
-                p.data.add_(epsilon, g)            
-            unlabel_pred_pos = model(unlabel_img)
-            # Backward finite difference
-            for p, g in zip(model.parameters(), dtheta):
-                p.data.sub_(2.*epsilon, g)
-            unlabel_pred_neg = model(unlabel_img)
+                p.data.sub_(args.mulitplier * lr, g)
+            # Compute the pseudo-label
+            unlabel_pseudo_gt = F.softmax(model(unlabel_img), dim=1)
             # Resume original params
             for p, g in zip(model.parameters(), dtheta):
-                p.data.add_(epsilon, g)
-            # Compute (approximated) gradients w.r.t pseudo-gt of unlabel data
-            if args.consistency == 'kl':
-                # If the consistency loss is KL Divergence
-                unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
-                unlabel_grad.div_(2.*epsilon)
-            elif args.consistency == 'mse':
-                # If the consistency loss is MSE
-                unlabel_grad = F.softmax(unlabel_pred_pos, dim=1) - F.softmax(unlabel_pred_neg, dim=1)
-                unlabel_grad.div_(epsilon)
-            unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
-            # Label normalization
-            torch.relu_(unlabel_pseudo_gt)
-            sums = torch.sum(unlabel_pseudo_gt, dim=1, keepdim=True)
-            unlabel_pseudo_gt /= torch.where(sums == 0., torch.ones_like(sums), sums)
-        
+                p.data.add_(args.mulitplier * lr, g)
+
         # Training mode
         model.train()
         if args.mix_up:
@@ -190,10 +164,7 @@ def main():
         else:
             # Compute loss with `unlabel_pseudo_gt`
             unlabel_pred = model(unlabel_img)
-            if args.consistency == 'kl':
-                loss = unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
-            elif args.consistency == 'mse':
-                loss = unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
+            loss = unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
         
         if args.additional == 'label':
             # Additionally use label data
@@ -204,10 +175,7 @@ def main():
         elif args.additional == 'unlabel' and args.mix_up:
             # Additionally use unlabel data
             unlabel_pred = model(unlabel_img)
-            if args.consistency == 'kl':
-                unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
-            elif args.consistency == 'mse':
-                unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
+            unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
             loss = loss + weight * unlabel_loss
         
         # One SGD step
@@ -229,8 +197,8 @@ def main():
             logger.info("Step {0:05d} Dtime: {dtimes.avg:.3f} Btime: {btimes.avg:.3f} "
                         "Lloss: {llosses.val:.3f} (avg {llosses.avg:.3f}) Uloss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
                         "Lacc: {label.val:.3f} (avg {label.avg:.3f}) Uacc: {unlabel.val:.3f} (avg {unlabel.avg:.3f}) "
-                        "OLR: {1:.4f} ILR: {2:.4f} W: {3:.3f}".format(
-                                step, lr, inner_lr, weight,
+                        "OLR: {1:.4f} W: {3:.3f}".format(
+                                step, lr, weight,
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
                                 ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
                                 ))
@@ -254,7 +222,6 @@ def main():
             writer.add_scalar('train/label-loss', label_losses.avg, step)
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
             writer.add_scalar('train/lr', lr, step)
-            writer.add_scalar('train/inner-lr', inner_lr, step)
             writer.add_scalar('train/weight', weight, step)
             writer.add_scalar('test/accuracy', acc, step)
             # Reset the AverageMeters

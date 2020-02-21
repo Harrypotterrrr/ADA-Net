@@ -201,7 +201,7 @@ def main():
             # label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
             label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
             loss = label_loss + weight * loss
-        elif args.additional == 'unlabel' and args.mix:
+        elif args.additional == 'unlabel' and args.mix_up:
             # Additionally use unlabel data
             unlabel_pred = model(unlabel_img)
             if args.consistency == 'kl':
