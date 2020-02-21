@@ -6,8 +6,9 @@ def make_folder(path):
     if not exists(path):
         os.makedirs(path)
 
-def compute_weight(weight, step, total_steps):
-    return weight * (1. - math.cos(step / total_steps * math.pi)) / 2.
+def compute_weight(weight, step, total_steps, rampup_step=4000):
+    # return weight * (1. - math.cos(step / total_steps * math.pi)) / 2.
+    return weight if step > rampup_step else weight * step / rampup_step
 
 def zca_whitening(x, norm_stats=None):
     shape = x.shape

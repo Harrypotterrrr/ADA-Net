@@ -20,6 +20,7 @@ parser.add_argument('--additional', type=str, default='None', choices=['None', '
 parser.add_argument('--auto-weight', action='store_true', help='Automatically adjust the weight for unlabel data')
 parser.add_argument('--weight', type=float, default=1., help='re-weighting scalar for the additional loss')
 parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
+parser.add_argument('--mix-up-reweight', action='store_true', help='Incorporate re-weighting scalars in mix-up augmentation')
 parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
 parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
@@ -31,9 +32,11 @@ parser.add_argument('--num-cycles', type=int, default=33, help='Number of repeat
 parser.add_argument('--fastswa-freq', type=int, default=1200, help='Frequency of fastSWA')
 parser.add_argument('--warmup', type=int, default=4000, help='Warmup iterations')
 parser.add_argument('--const-steps', type=int, default=0, help='Number of iterations of constant lr')
+parser.add_argument('--fix-inner', action='store_true', help='Fix inner learning rate')
 parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
 parser.add_argument('--num-workers', type=int, default=4, help='Number of workers')
+parser.add_argument('--consistency', type=str, default='kl', choices=['kl', 'mse'], help='Consistency loss type')
 parser.add_argument('--resume', type=str, default=None, help='Resume model from a checkpoint')
 parser.add_argument('--seed', type=int, default=1234, help='Random seed for reproducibility')
 # Misc
@@ -125,9 +128,9 @@ def main():
         _label_gt = F.one_hot(label_gt, num_classes=10).float()
         data_end = time.time()
         
-        ### TODO: set inner-lr == lr for now.
         # Compute the inner learning rate and outer learning rate
-        lr = inner_lr = compute_lr(step)
+        lr = compute_lr(step)
+        inner_lr = args.lr if args.fix_inner else lr
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         if args.auto_weight:
@@ -141,7 +144,8 @@ def main():
         model.eval()
         # Forward label data and perform backward pass
         label_pred = model(label_img)
-        label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
+        # label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
+        label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
         dtheta = torch.autograd.grad(label_loss, model.parameters(), only_inputs=True)
         
         ### TODO: implement inner-iter
@@ -163,8 +167,14 @@ def main():
             for p, g in zip(model.parameters(), dtheta):
                 p.data.add_(epsilon, g)
             # Compute (approximated) gradients w.r.t pseudo-gt of unlabel data
-            unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
-            unlabel_grad.div_(2.*epsilon)
+            if args.consistency == 'kl':
+                # If the consistency loss is KL Divergence
+                unlabel_grad = F.log_softmax(unlabel_pred_pos, dim=1) - F.log_softmax(unlabel_pred_neg, dim=1)
+                unlabel_grad.div_(2.*epsilon)
+            elif args.consistency == 'mse':
+                # If the consistency loss is MSE
+                unlabel_grad = F.softmax(unlabel_pred_pos, dim=1) - F.softmax(unlabel_pred_neg, dim=1)
+                unlabel_grad.div_(epsilon)
             unlabel_pseudo_gt.sub_(inner_lr, unlabel_grad)
             # Label normalization
             torch.relu_(unlabel_pseudo_gt)
@@ -181,21 +191,32 @@ def main():
                 interp_img = (label_img * _alpha + unlabel_img * (1. - _alpha)).detach()
                 interp_pseudo_gt = (_label_gt * alpha + unlabel_pseudo_gt * (1. - alpha)).detach()
             interp_pred = model(interp_img)
-            loss = unlabel_loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='batchmean')
+            if args.mix_up_reweight:
+                unreduced_loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='none')
+                loss = unlabel_loss = torch.mean(torch.sum(unreduced_loss, dim=1) * alpha.squeeze())
+            else:
+                loss = unlabel_loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='batchmean')
         else:
             # Compute loss with `unlabel_pseudo_gt`
             unlabel_pred = model(unlabel_img)
-            loss = unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+            if args.consistency == 'kl':
+                loss = unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+            elif args.consistency == 'mse':
+                loss = unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
         
         if args.additional == 'label':
             # Additionally use label data
             label_pred = model(label_img)
-            label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
+            # label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
+            label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
             loss = label_loss + weight * loss
         elif args.additional == 'unlabel' and args.mix:
             # Additionally use unlabel data
             unlabel_pred = model(unlabel_img)
-            unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+            if args.consistency == 'kl':
+                unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
+            elif args.consistency == 'mse':
+                unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
             loss = loss + weight * unlabel_loss
         
         # One SGD step
