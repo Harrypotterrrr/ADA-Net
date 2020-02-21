@@ -104,7 +104,7 @@ def compute_lr(step):
     return lr
 
 def main():
-    data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
+    data_times, batch_times, label_losses, unlabel_losses, label_acc = [AverageMeter() for _ in range(5)]
     best_acc = 0.
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
@@ -139,12 +139,12 @@ def main():
         with torch.no_grad():
             # Vallina SGD step
             for p, g in zip(model.parameters(), dtheta):
-                p.data.sub_(args.mulitplier * lr, g)
+                p.data.sub_(args.multiplier * lr, g)
             # Compute the pseudo-label
             unlabel_pseudo_gt = F.softmax(model(unlabel_img), dim=1)
             # Resume original params
             for p, g in zip(model.parameters(), dtheta):
-                p.data.add_(args.mulitplier * lr, g)
+                p.data.add_(args.multiplier * lr, g)
 
         # Training mode
         model.train()
@@ -184,23 +184,20 @@ def main():
         optimizer.step()
         # Compute accuracy
         label_top1, = accuracy(label_pred, label_gt, topk=(1,))
-        unlabel_top1, = accuracy(unlabel_pred, unlabel_gt, topk=(1,))
         # Update AverageMeter stats
         data_times.update(data_end - data_start)
         batch_times.update(time.time() - data_end)
         label_losses.update(label_loss.item(), label_img.size(0))
         unlabel_losses.update(unlabel_loss.item(), unlabel_img.size(0))
         label_acc.update(label_top1.item(), label_img.size(0))
-        unlabel_acc.update(unlabel_top1.item(), unlabel_img.size(0))
         # Print and log
         if step % args.print_freq == 0:
             logger.info("Step {0:05d} Dtime: {dtimes.avg:.3f} Btime: {btimes.avg:.3f} "
                         "Lloss: {llosses.val:.3f} (avg {llosses.avg:.3f}) Uloss: {ulosses.val:.3f} (avg {ulosses.avg:.3f}) "
-                        "Lacc: {label.val:.3f} (avg {label.avg:.3f}) Uacc: {unlabel.val:.3f} (avg {unlabel.avg:.3f}) "
-                        "OLR: {1:.4f} W: {3:.3f}".format(
+                        "Lacc: {label.val:.3f} (avg {label.avg:.3f}) OLR: {1:.4f} W: {2:.3f}".format(
                                 step, lr, weight,
                                 dtimes=data_times, btimes=batch_times, llosses=label_losses,
-                                ulosses=unlabel_losses, label=label_acc, unlabel=unlabel_acc
+                                ulosses=unlabel_losses, label=label_acc
                                 ))
         # Test and save model
         if (step + 1) % args.test_freq == 0 or step == args.total_steps - 1:
@@ -218,7 +215,6 @@ def main():
                 }, is_best, path=args.save_path, filename="checkpoint-epoch.pth")
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
-            writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
             writer.add_scalar('train/label-loss', label_losses.avg, step)
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
             writer.add_scalar('train/lr', lr, step)
@@ -228,7 +224,6 @@ def main():
             label_losses.reset()
             unlabel_losses.reset()
             label_acc.reset()
-            unlabel_acc.reset()
 
 @torch.no_grad()
 def evaluate():

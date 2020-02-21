@@ -110,7 +110,6 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta_simple.py \
         --lr "0.1" \
         --warmup "4000" \
         --const-steps "0" \
-        --consistency "mse" \
         --print-freq "100";
 
 CUDA_VISIBLE_DEVICES='1' python3 train_meta_simple.py \
@@ -126,5 +125,4 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta_simple.py \
         --lr "0.1" \
         --warmup "4000" \
         --const-steps "0" \
-        --consistency "mse" \
         --print-freq "100";
