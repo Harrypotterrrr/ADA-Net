@@ -83,6 +83,7 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --const-steps "0" \
         --consistency "kl" \
         --print-freq "100";
+# 91.57
 
 CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --dataset "cifar10" \
@@ -100,6 +101,7 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+# 92.64
 
 ### desktop
 CUDA_VISIBLE_DEVICES='0' python3 train_meta_simple.py \
@@ -153,7 +155,7 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --consistency "kl" \
         --print-freq "100";
 
-CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
+CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --dataset "cifar10" \
         --save-path "results/cifar10-labels4000-mile30-35-mixup-label-auto-weight1-alpha1-mse" \
         --additional "label" \
@@ -232,6 +234,42 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --mix-up \
         --alpha "0.1" \
         --num-label "4000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100";
+
+### 4x2080ti
+CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
+        --dataset "cifar10" \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-ent" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --ent-min \
+        --mix-up \
+        --alpha "1." \
+        --num-label "4000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
+        --dataset "svhn" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha0.1-mse" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "0.1" \
+        --num-label "1000" \
         --total-steps "400000" \
         --milestones "[300000, 350000]" \
         --lr "0.1" \

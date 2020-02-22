@@ -6,7 +6,7 @@ from torch.distributions import Beta
 from tensorboardX import SummaryWriter
 
 from dataloader import cifar10, svhn
-from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_weight
+from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_weight, EntropyLoss
 from model import ConvLarge 
 
 parser = argparse.ArgumentParser()
@@ -34,6 +34,7 @@ parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate anne
 parser.add_argument('--milestones', type=eval, default=[300000, 350000], help='Learning rate annealing steps')
 parser.add_argument('--fix-inner', action='store_true', help='Fix inner learning rate')
 parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
+parser.add_argument('--ent-min', action='store_true', help='Use entropy minimization regularization')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
 parser.add_argument('--num-workers', type=int, default=4, help='Number of workers')
 parser.add_argument('--consistency', type=str, default='kl', choices=['kl', 'mse'], help='Consistency loss type')
@@ -72,6 +73,8 @@ label_loader, unlabel_loader, test_loader = dset(
 logger.info("Building model and optimzer...")
 model = ConvLarge(stochastic=True).cuda()
 optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+if args.ent_min:
+    criterion = EntropyLoss().cuda()
 logger.info("Model:\n%s\nOptimizer:\n%s" % (str(model), str(optimizer)))
 # Optionally build beta distribution
 if args.mix_up:
@@ -194,13 +197,16 @@ def main():
                 loss = unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
             elif args.consistency == 'mse':
                 loss = unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
+            if args.ent_min:
+                loss += criterion(unlabel_pred)
         
         if args.additional == 'label' or args.additional == 'both':
             # Additionally use label data
             label_pred = model(label_img)
             # label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
             label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
-            # loss = label_loss + weight * loss
+            if args.ent_min:
+                label_loss += criterion(label_pred)
         elif (args.additional == 'unlabel' or args.additional == 'both') and args.mix_up:
             # Additionally use unlabel data
             unlabel_pred = model(unlabel_img)
@@ -208,7 +214,8 @@ def main():
                 unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
             elif args.consistency == 'mse':
                 unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
-            # loss = loss + weight * unlabel_loss
+            if args.ent_min:
+                unlabel_loss += criterion(unlabel_pred)
         
         if args.additional == 'label' or (args.additional == 'both' and not args.mix_up):
             loss = label_loss + weight * loss

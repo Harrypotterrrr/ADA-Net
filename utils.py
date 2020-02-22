@@ -1,6 +1,8 @@
 import os, logging, shutil, math, torch
 from os.path import exists, join
 import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
 
 def make_folder(path):
     if not exists(path):
@@ -84,6 +86,20 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
+class EntropyLoss(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(EntropyLoss, self).__init__()
+        self.reduction = reduction
+
+    def forward(self, x):
+        b = -1. * F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
+        if self.reduction == 'mean':
+            return torch.sum(b) / b.size(0)
+        elif self.reduction == 'sum':
+            return torch.sum(b)
+        elif self.reduction == 'none':
+            return torch.sum(b, dim=1)
+        
 class WeightSWA(object):
     def __init__(self, swa_model):
         self.num_updates = 0
