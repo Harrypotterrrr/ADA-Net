@@ -13,10 +13,10 @@ parser = argparse.ArgumentParser()
 # Configuration
 parser.add_argument('--num-label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
-parser.add_argument('--aug', type=str, default=None, help='Apply ZCA augmentation')
+parser.add_argument('--zca', action='store_true', help='Apply ZCA augmentation')
 
 # Training setting
-parser.add_argument('--additional', type=str, default='None', choices=['None', 'label', 'unlabel'], help='Use additional data for training')
+parser.add_argument('--additional', type=str, default='None', choices=['None', 'label', 'unlabel', 'both'], help='Use additional data for training')
 parser.add_argument('--auto-weight', action='store_true', help='Automatically adjust the weight for unlabel data')
 parser.add_argument('--weight', type=float, default=1., help='re-weighting scalar for the additional loss')
 parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
@@ -66,7 +66,7 @@ logger.info("Loading data...")
 if args.dataset == "cifar10": dset = cifar10
 elif args.dataset == "svhn": dset = svhn
 label_loader, unlabel_loader, test_loader = dset(
-        args.data_path, args.batch_size, args.num_workers, args.num_label, args.aug
+        args.data_path, args.batch_size, args.num_workers, args.num_label, args.zca
         )
 # Build model and optimizer
 logger.info("Building model and optimzer...")
@@ -195,20 +195,27 @@ def main():
             elif args.consistency == 'mse':
                 loss = unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
         
-        if args.additional == 'label':
+        if args.additional == 'label' or args.additional == 'both':
             # Additionally use label data
             label_pred = model(label_img)
             # label_loss = F.kl_div(F.log_softmax(label_pred, dim=1), _label_gt, reduction='batchmean')
             label_loss = F.cross_entropy(label_pred, label_gt, reduction='mean')
-            loss = label_loss + weight * loss
-        elif args.additional == 'unlabel' and args.mix_up:
+            # loss = label_loss + weight * loss
+        elif (args.additional == 'unlabel' or args.additional == 'both') and args.mix_up:
             # Additionally use unlabel data
             unlabel_pred = model(unlabel_img)
             if args.consistency == 'kl':
                 unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
             elif args.consistency == 'mse':
                 unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
+            # loss = loss + weight * unlabel_loss
+        
+        if args.additional == 'label' or (args.additional == 'both' and not args.mix_up):
+            loss = label_loss + weight * loss
+        elif args.additional == 'unlabel' and args.mix_up:
             loss = loss + weight * unlabel_loss
+        elif args.additional == 'both' and args.mix_up:
+            loss = label_loss + weight * (loss + unlabel_loss)
         
         # One SGD step
         optimizer.zero_grad()

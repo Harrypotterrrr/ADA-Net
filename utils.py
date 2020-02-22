@@ -10,18 +10,23 @@ def compute_weight(weight, step, total_steps, rampup_step=4000):
     # return weight * (1. - math.cos(step / total_steps * math.pi)) / 2.
     return weight if step > rampup_step else weight * step / rampup_step
 
-def zca_whitening(x, norm_stats=None):
-    shape = x.shape
-    x = x.reshape((-1, np.product(x.shape[1:])))
-    if norm_stats is None:
-        mean = np.mean(x, axis=0, keepdims=True)
-        x_centered = x - mean
-        sigma = np.dot(x_centered.T, x_centered) / x_centered.shape[0]
-        U, Lambda, _ = np.linalg.svd(sigma)
-        components = U.dot( np.diag( 1. / (np.sqrt(Lambda)+1e-5) ) ).dot(U.T)
-    else: mean, components = norm_stats
-    whiten = np.dot(x - mean, components.T).reshape(*shape)
-    return whiten, (mean, components)
+def compute_zca_stats(data):
+    data = data.reshape((data.shape[0], -1))
+    data  = data.astype(np.float32) / 255.
+    assert data.min() >= 0. and data.max() <= 1.
+    mean = np.mean(data, axis=0)
+    data -= mean[None, :]
+    sigma = np.dot(data.T, data) / data.shape[0]
+    U, Lambda, _ = np.linalg.svd(sigma)
+    components = U.dot( np.diag( 1. / (np.sqrt(Lambda)+1e-5) ) ).dot(U.T)
+    return torch.from_numpy(mean).float(), torch.from_numpy(components).float()
+
+def zca_whitening(data, mean, components):
+    size = data.size()
+    data = data.view(-1)
+    data -= mean
+    data = torch.matmul(data, components)
+    return data.view(*size)
 
 class Logger():
     def __init__(self, path="log.txt"):

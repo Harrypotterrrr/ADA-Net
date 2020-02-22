@@ -13,7 +13,7 @@ parser = argparse.ArgumentParser()
 # Configuration
 parser.add_argument('--num-label', type=int, default=4000)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
-parser.add_argument('--aug', type=str, default=None, help='Apply ZCA augmentation')
+parser.add_argument('--zca', action='store_true', help='Apply ZCA augmentation')
 
 # Training setting
 parser.add_argument('--additional', type=str, default='None', choices=['None', 'label', 'unlabel'], help='Use additional data for training')
@@ -70,7 +70,7 @@ logger.info("Loading data...")
 if args.dataset == "cifar10": dset = cifar10
 elif args.dataset == "svhn": dset = svhn
 label_loader, unlabel_loader, test_loader = dset(
-        args.data_path, args.batch_size, args.num_workers, args.num_label, args.aug
+        args.data_path, args.batch_size, args.num_workers, args.num_label, args.zca
         )
 # Build model and optimizer
 logger.info("Building model and optimzer...")
