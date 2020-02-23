@@ -44,6 +44,7 @@ parser.add_argument('--print-freq', type=int, default=100, help='Print and log f
 parser.add_argument('--test-freq', type=int, default=400, help='Test frequency')
 parser.add_argument('--save-path', type=str, default='./results/tmp', help='Save path')
 args = parser.parse_args()
+args.num_classes = 100 if args.dataset == 'cifar100' else 10
 
 # Set random seed
 random.seed(args.seed)
@@ -66,10 +67,10 @@ label_loader, unlabel_loader, test_loader = dataloader(
         )
 # Build model and optimizer
 logger.info("Building model and optimzer...")
-if args.architecute == "convlarge":
-    model = ConvLarge(stochastic=True).cuda()
-elif args.architecute == "shakeshake":
-    model = shakeshake26(num_classes=10).cuda()
+if args.architecture == "convlarge":
+    model = ConvLarge(num_classes=args.num_classes, stochastic=True).cuda()
+elif args.architecture == "shakeshake":
+    model = shakeshake26(num_classes=args.num_classes).cuda()
 optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 if args.ent_min:
     criterion = EntropyLoss().cuda()
@@ -120,7 +121,7 @@ def main():
         label_gt = label_gt.cuda()
         unlabel_img = unlabel_img.cuda()
         unlabel_gt = unlabel_gt.cuda()
-        _label_gt = F.one_hot(label_gt, num_classes=10).float()
+        _label_gt = F.one_hot(label_gt, num_classes=args.num_classes).float()
         data_end = time.time()
         
         # Compute the inner learning rate and outer learning rate

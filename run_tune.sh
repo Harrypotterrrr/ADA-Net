@@ -327,7 +327,7 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
 CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
         --dataset "cifar100" \
         -a "convlarge" \
-        --save-path "results/cifar10-labels10000-mile30-35-mixup-unlabel-auto-weight1-alpha1-kl" \
+        --save-path "results/cifar100-labels10000-mile30-35-mixup-unlabel-auto-weight1-alpha1-kl" \
         --additional "unlabel" \
         --weight "1." \
         --auto-weight \
@@ -364,7 +364,7 @@ CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
 CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --dataset "cifar100" \
         -a "shakeshake" \
-        --save-path "results/cifar10-labels10000-shakeshake-mile30-35-mixup-unlabel-auto-weight1-alpha1-kl" \
+        --save-path "results/cifar100-labels10000-shakeshake-mile30-35-mixup-unlabel-auto-weight1-alpha1-kl" \
         --additional "unlabel" \
         --weight "1." \
         --auto-weight \
