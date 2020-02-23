@@ -1,6 +1,5 @@
-import os, logging, shutil, math, torch
+import os, logging, shutil, torch
 from os.path import exists, join
-import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -11,7 +10,7 @@ def make_folder(path):
 def compute_weight(weight, step, total_steps, rampup_step=4000):
     # return weight * (1. - math.cos(step / total_steps * math.pi)) / 2.
     return weight if step > rampup_step else weight * step / rampup_step
-
+"""
 def compute_zca_stats(data):
     data = data.reshape((data.shape[0], -1))
     data  = data.astype(np.float32) / 255.
@@ -29,7 +28,7 @@ def zca_whitening(data, mean, components):
     data -= mean
     data = torch.matmul(data, components)
     return data.view(*size)
-
+"""
 class Logger():
     def __init__(self, path="log.txt"):
         self.logger = logging.getLogger("Logger")

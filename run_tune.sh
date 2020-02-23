@@ -154,6 +154,7 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --const-steps "0" \
         --consistency "kl" \
         --print-freq "100";
+# 90.35
 
 CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --dataset "cifar10" \
@@ -171,6 +172,7 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+# 90.66
 
 CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
         --dataset "cifar10" \
@@ -188,6 +190,7 @@ CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
         --const-steps "0" \
         --consistency "kl" \
         --print-freq "100";
+# 91.28
 
 CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
         --dataset "cifar10" \
@@ -205,6 +208,7 @@ CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+# 91.25
 
 ### desktop
 CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
@@ -224,6 +228,7 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+# killed
 
 CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --dataset "cifar10" \
@@ -241,11 +246,12 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+# 90.45
 
 ### 4x2080ti
 CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --dataset "cifar10" \
-        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-ent" \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-ent0.1" \
         --additional "unlabel" \
         --weight "1." \
         --auto-weight \
@@ -260,6 +266,7 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+# 
 
 CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --dataset "svhn" \
@@ -277,3 +284,116 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+#
+
+######## 02/23 ########
+### monster
+CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
+        --dataset "cifar10" \
+        -a "shakeshake" \
+        --save-path "results/cifar10-labels4000-shakeshake-mile30-35-mixup-unlabel-auto-weight1-alpha1-kl" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1." \
+        --num-label "4000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "kl" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
+        --dataset "cifar10" \
+        -a "shakeshake" \
+        --save-path "results/cifar10-labels4000-shakeshake-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1." \
+        --num-label "4000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
+        --dataset "cifar100" \
+        -a "convlarge" \
+        --save-path "results/cifar10-labels10000-mile30-35-mixup-unlabel-auto-weight1-alpha1-kl" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1." \
+        --num-label "10000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "kl" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
+        --dataset "cifar100" \
+        -a "convlarge" \
+        --save-path "results/cifar100-labels10000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1." \
+        --num-label "10000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100";
+
+### desktop
+CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
+        --dataset "cifar100" \
+        -a "shakeshake" \
+        --save-path "results/cifar10-labels10000-shakeshake-mile30-35-mixup-unlabel-auto-weight1-alpha1-kl" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1." \
+        --num-label "10000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "kl" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
+        --dataset "cifar100" \
+        -a "shakeshake" \
+        --save-path "results/cifar100-labels10000-shakeshake-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1." \
+        --num-label "10000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100";
+

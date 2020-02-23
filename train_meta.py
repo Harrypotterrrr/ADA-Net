@@ -5,23 +5,25 @@ from torch.optim import SGD
 from torch.distributions import Beta
 from tensorboardX import SummaryWriter
 
-from dataloader import cifar10, svhn
+from dataloader import dataloader
 from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_weight, EntropyLoss
-from model import ConvLarge 
+from model import ConvLarge, shakeshake26
 
 parser = argparse.ArgumentParser()
-# Configuration
+# Basic configuration
+parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'svhn'])
+parser.add_argument('--data-path', type=str, default='./data', help='Data path')
 parser.add_argument('--num-label', type=int, default=4000)
-parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'svhn'])
-parser.add_argument('--zca', action='store_true', help='Apply ZCA augmentation')
-
-# Training setting
 parser.add_argument('--additional', type=str, default='None', choices=['None', 'label', 'unlabel', 'both'], help='Use additional data for training')
+parser.add_argument('-a', '--architecture', type=str, default='convlarge', choices=['convlarge', 'shakeshake'], help='Network architecture')
+parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
+parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
+parser.add_argument('--mix-up-reweight', action='store_true', help='Incorporate re-weighting scalars in mix-up augmentation')
 parser.add_argument('--auto-weight', action='store_true', help='Automatically adjust the weight for unlabel data')
 parser.add_argument('--weight', type=float, default=1., help='re-weighting scalar for the additional loss')
-parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
-parser.add_argument('--mix-up-reweight', action='store_true', help='Incorporate re-weighting scalars in mix-up augmentation')
-parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
+parser.add_argument('--consistency', type=str, default='kl', choices=['kl', 'mse'], help='Consistency loss type')
+parser.add_argument('--ent-min', action='store_true', help='Use entropy minimization regularization')
+# Training setting
 parser.add_argument('--total-steps', type=int, default=400000, help='Start step (for resume)')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
 parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
@@ -34,17 +36,12 @@ parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate anne
 parser.add_argument('--milestones', type=eval, default=[300000, 350000], help='Learning rate annealing steps')
 parser.add_argument('--fix-inner', action='store_true', help='Fix inner learning rate')
 parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
-parser.add_argument('--ent-min', action='store_true', help='Use entropy minimization regularization')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SGD optimizer')
 parser.add_argument('--num-workers', type=int, default=4, help='Number of workers')
-parser.add_argument('--consistency', type=str, default='kl', choices=['kl', 'mse'], help='Consistency loss type')
 parser.add_argument('--resume', type=str, default=None, help='Resume model from a checkpoint')
 parser.add_argument('--seed', type=int, default=1234, help='Random seed for reproducibility')
-# Misc
-parser.add_argument('--print-freq', type=int, default=1, help='Print and log frequency')
+parser.add_argument('--print-freq', type=int, default=100, help='Print and log frequency')
 parser.add_argument('--test-freq', type=int, default=400, help='Test frequency')
-# Path
-parser.add_argument('--data-path', type=str, default='./data', help='Data path')
 parser.add_argument('--save-path', type=str, default='./results/tmp', help='Save path')
 args = parser.parse_args()
 
@@ -64,14 +61,15 @@ logger.info(args)
 torch.backends.cudnn.benchmark = True
 # Define dataloader
 logger.info("Loading data...")
-if args.dataset == "cifar10": dset = cifar10
-elif args.dataset == "svhn": dset = svhn
-label_loader, unlabel_loader, test_loader = dset(
-        args.data_path, args.batch_size, args.num_workers, args.num_label, args.zca
+label_loader, unlabel_loader, test_loader = dataloader(
+        args.dataset, args.data_path, args.batch_size, args.num_workers, args.num_label
         )
 # Build model and optimizer
 logger.info("Building model and optimzer...")
-model = ConvLarge(stochastic=True).cuda()
+if args.architecute == "convlarge":
+    model = ConvLarge(stochastic=True).cuda()
+elif args.architecute == "shakeshake":
+    model = shakeshake26(num_classes=10).cuda()
 optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 if args.ent_min:
     criterion = EntropyLoss().cuda()
