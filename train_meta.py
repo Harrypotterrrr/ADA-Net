@@ -255,12 +255,13 @@ def main():
             if is_best:
                 best_acc = acc
             logger.info("Best Accuracy: %.5f" % best_acc)
+            if (step + 1) % args.test_freq == 4000 or step == args.total_steps - 1:
             save_checkpoint({
                 'step': step + 1,
                 'model': model.state_dict(),
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict()
-                }, is_best, path=args.save_path, filename="checkpoint-epoch.pth")
+                }, is_best, path=args.save_path, filename="checkpoint-epoch%d.pth"%int(step/400)))
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)

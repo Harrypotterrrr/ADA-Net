@@ -266,7 +266,7 @@ CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
-# 
+# 92.22
 
 CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --dataset "svhn" \
@@ -284,7 +284,7 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
-#
+# 95.71
 
 ######## 02/23 ########
 ### monster
@@ -341,6 +341,7 @@ CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
         --const-steps "0" \
         --consistency "kl" \
         --print-freq "100";
+# 67.09
 
 CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
         --dataset "cifar100" \
@@ -359,6 +360,7 @@ CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
         --const-steps "0" \
         --consistency "mse" \
         --print-freq "100";
+# 69.53
 
 ### desktop
 CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
@@ -395,5 +397,79 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --warmup "4000" \
         --const-steps "0" \
         --consistency "mse" \
+        --print-freq "100";
+
+## 4x2080ti
+CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
+        --dataset "svhn" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight3-alpha1-mse" \
+        --additional "unlabel" \
+        --weight "3." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1" \
+        --num-label "1000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100"
+
+CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
+        --dataset "svhn" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1" \
+        --num-label "1000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100"
+
+######## 02/24 ########
+### monster
+CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
+        --dataset "svhn" \
+        -a "convlarge" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "0.1" \
+        --num-label "1000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
+        --dataset "cifar10" \
+        -a "convlarge" \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again" \
+        --additional "unlabel" \
+        --weight "1." \
+        --auto-weight \
+        --mix-up \
+        --alpha "1." \
+        --num-label "10000" \
+        --total-steps "400000" \
+        --milestones "[300000, 350000]" \
+        --lr "0.1" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --consistency "mse" \
+        --seed "94578" \
         --print-freq "100";
 
