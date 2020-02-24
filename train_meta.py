@@ -42,6 +42,7 @@ parser.add_argument('--resume', type=str, default=None, help='Resume model from 
 parser.add_argument('--seed', type=int, default=1234, help='Random seed for reproducibility')
 parser.add_argument('--print-freq', type=int, default=100, help='Print and log frequency')
 parser.add_argument('--test-freq', type=int, default=400, help='Test frequency')
+parser.add_argument('--save-freq', type=int, default=4000, help='Save frequency')
 parser.add_argument('--save-path', type=str, default='./results/tmp', help='Save path')
 args = parser.parse_args()
 args.num_classes = 100 if args.dataset == 'cifar100' else 10
@@ -255,13 +256,13 @@ def main():
             if is_best:
                 best_acc = acc
             logger.info("Best Accuracy: %.5f" % best_acc)
-            if (step + 1) % args.test_freq == 4000 or step == args.total_steps - 1:
+            if (step + 1) % args.save_freq == 0 or step == args.total_steps - 1:
                 save_checkpoint({
                     'step': step + 1,
                     'model': model.state_dict(),
                     'best_acc': best_acc,
                     'optimizer' : optimizer.state_dict()
-                    }, is_best, path=args.save_path, filename="checkpoint-epoch%d.pth"%int(step/400)))
+                    }, is_best, path=args.save_path, filename="checkpoint-epoch%d.pth"%int(step/400))
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
