@@ -26,6 +26,10 @@ parser.add_argument('--ent-min', action='store_true', help='Use entropy minimiza
 # Training setting
 parser.add_argument('--total-steps', type=int, default=400000, help='Start step (for resume)')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
+parser.add_argument('--swa', action='store_true', help='Use modified SWA lr scheduler')
+parser.add_argument('--cycle-interval', type=int, default=40000, help='Cycle interval for cosine lr annealing')
+parser.add_argument('--lr-min', type=float, default=1e-4, help='Minimal lr for cosine annealing')
+parser.add_argument('--log', action='store_true', help='Cosine learning rate annealing in the log space')
 parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
 parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for gradient estimation')
 parser.add_argument('--lr', type=float, default=0.1, help='Maximum learning rate')
@@ -97,6 +101,14 @@ def compute_lr(step):
         lr = args.lr * step / args.warmup
     elif step < args.warmup + args.const_steps:
         lr = args.lr
+    elif args.swa:
+        step = (step - args.warmup - args.const_steps) % args.cycle_interval
+        if args.log:
+            log_lr_max, log_lr_min = math.log(args.lr), math.log(args.lr_min)
+            log_lr = (log_lr_max-log_lr_min) * (1. + math.cos(step / args.cycle_interval * math.pi) ) / 2. + log_lr_min
+            lr = math.exp(log_lr)
+        else:
+            lr = (args.lr-args.lr_min) * (1. + math.cos(step / args.cycle_interval * math.pi) ) / 2. + args.lr_min
     elif args.lr_decay == "step":
         lr = args.lr
         for milestone in args.milestones:
