@@ -463,7 +463,7 @@ CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
         --auto-weight \
         --mix-up \
         --alpha "1." \
-        --num-label "10000" \
+        --num-label "4000" \
         --total-steps "400000" \
         --milestones "[300000, 350000]" \
         --lr "0.1" \

@@ -87,7 +87,7 @@ if args.resume is not None:
         best_acc = checkpoint['best_acc']
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
-        logger.info("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
+        logger.info("=> loaded checkpoint '{}' (step {})".format(args.resume, checkpoint['step']))
     else:
         logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
@@ -261,7 +261,7 @@ def main():
                     'model': model.state_dict(),
                     'best_acc': best_acc,
                     'optimizer' : optimizer.state_dict()
-                    }, is_best, path=args.save_path, filename="checkpoint-epoch%d.pth"%int(step/400)))
+                    }, is_best, path=args.save_path, filename="checkpoint-epoch%d.pth"%int(step+1/400))
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)

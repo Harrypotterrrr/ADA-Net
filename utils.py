@@ -104,14 +104,14 @@ class WeightSWA(object):
         self.num_updates = 0
         self.swa_model = swa_model # assume that the parameters are to be discarded at the first update
 
-    def update(self, student_model):
+    def update(self, student_model_state):
         self.num_updates += 1
-        print("Updating SWA. Current num_updates = %d"%self.num_updates)
+        print("Updating SWA. Current num_updates = %d" % self.num_updates)
         if self.num_updates == 1:
-            self.swa_model.load_state_dict(student_model.state_dict())
+            self.swa_model.load_state_dict(student_model_state)
         else:
             inv = 1. / float(self.num_updates)
-            for swa_p, src_p in zip(self.swa_model.parameters(), student_model.parameters()):
+            for swa_p, src_p in zip(self.swa_model.parameters(), student_model_state.values()):
                 swa_p.data.sub_(inv*swa_p.data)
                 swa_p.data.add_(inv*src_p.data)
     
