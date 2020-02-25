@@ -473,3 +473,93 @@ CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
         --seed "94578" \
         --print-freq "100";
 
+######## 02/25 ########
+### 4x2080ti
+CUDA_VISIBLE_DEVICES='0' python3 evaluate_swa.py \
+        --dataset "svhn" \
+        -a "convlarge" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swa-from-749-interval-10" \
+        --resume "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "1000" \
+        --average-start "749" \
+        --average-interval "10" \
+        --seed "7349" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='0' python3 evaluate_swa.py \
+        --dataset "svhn" \
+        -a "convlarge" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swa-from-899-interval-10" \
+        --resume "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "1000" \
+        --average-start "899" \
+        --average-interval "10" \
+        --seed "7349" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='0' python3 evaluate_swa.py \
+        --dataset "svhn" \
+        -a "convlarge" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swa-from-499-interval-10" \
+        --resume "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "1000" \
+        --average-start "499" \
+        --average-interval "10" \
+        --seed "7349" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='0' python3 evaluate_swa.py \
+        --dataset "svhn" \
+        -a "convlarge" \
+        --save-path "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swa-from-499-interval-50" \
+        --resume "results/svhn-labels1000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "1000" \
+        --average-start "499" \
+        --average-interval "50" \
+        --seed "7349" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='1' python3 evaluate_swa.py \
+        --dataset "cifar10" \
+        -a "convlarge" \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swafrom-749-interval-10" \
+        --resume "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "4000" \
+        --average-start "749" \
+        --average-interval "10" \
+        --seed "9402" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='1' python3 evaluate_swa.py \
+        --dataset "cifar10" \
+        -a "convlarge" \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swafrom-899-interval-10" \
+        --resume "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "4000" \
+        --average-start "899" \
+        --average-interval "10" \
+        --seed "9402" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='1' python3 evaluate_swa.py \
+        --dataset "cifar10" \
+        -a "convlarge" \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swafrom-499-interval-10" \
+        --resume "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "4000" \
+        --average-start "499" \
+        --average-interval "10" \
+        --seed "9402" \
+        --print-freq "100";
+
+CUDA_VISIBLE_DEVICES='1' python3 evaluate_swa.py \
+        --dataset "cifar10" \
+        -a "convlarge" \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-swafrom-499-interval-50" \
+        --resume "results/cifar10-labels4000-mile30-35-mixup-unlabel-auto-weight1-alpha1-mse-again-resume" \
+        --num-label "4000" \
+        --average-start "499" \
+        --average-interval "50" \
+        --seed "9402" \
+        --print-freq "100";
+

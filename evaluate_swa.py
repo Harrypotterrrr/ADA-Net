@@ -8,9 +8,11 @@ from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, 
 from model import ConvLarge, shakeshake26
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
-parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
+parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'svhn'])
+parser.add_argument('--data-path', type=str, default='./data', help='Data path')
 parser.add_argument('--num-label', type=int, default=4000)
+parser.add_argument('-a', '--architecture', type=str, default='convlarge', choices=['convlarge', 'shakeshake'], help='Network architecture')
+parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
 parser.add_argument('--num-steps', type=int, default=100, help='Number of steps for updating BN stats')
 parser.add_argument('--average-start', type=int, default=100, help='Start averaging at which epoch')
 parser.add_argument('--average-interval', type=int, default=100, help='Average weight at which frequency')
@@ -18,7 +20,6 @@ parser.add_argument('--num-workers', type=int, default=4, help='Number of worker
 parser.add_argument('--resume', type=str, default=None, help='Resume model from a checkpoint')
 parser.add_argument('--seed', type=int, default=1234, help='Random seed for reproducibility')
 parser.add_argument('--print-freq', type=int, default=20, help='Print and log frequency')
-parser.add_argument('--data-path', type=str, default='./data', help='Data path')
 parser.add_argument('--save-path', type=str, default='./results/tmp', help='Save path')
 args = parser.parse_args()
 args.num_classes = 100 if args.dataset == 'cifar100' else 10
@@ -52,17 +53,6 @@ for param in model.parameters():
     param.detach_()
 swa_optim = WeightSWA(model)
 logger.info("Model:\n%s" % str(model))
-# Resume from a checkpoint
-if args.resume is not None:
-    if isfile(args.resume):
-        logger.info("=> loading checkpoint '{}'".format(args.resume))
-        checkpoint = torch.load(args.resume)
-        args.start_step = checkpoint['step']
-        best_acc = checkpoint['best_acc']
-        model.load_state_dict(checkpoint['model'])
-        logger.info("=> loaded checkpoint '{}' (step {})".format(args.resume, checkpoint['step']))
-    else:
-        logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
 def main():
     best_acc, epoch = 0., args.average_start
@@ -71,24 +61,25 @@ def main():
         filename = join(args.resume, "checkpoint-epoch%d.pth" % epoch)
         if isfile(filename):
             checkpoint = torch.load(filename)
-            logger.info("=> loaded checkpoint from %s".format(filename))
+            logger.info("=> loaded checkpoint from %s" % filename)
         else:
             logger.info("=> No checkpoint at %s. Stop evaluation." % filename)
             break
         # Evaluate and save the SWA model
         swa_optim.update(checkpoint['model'])
+        logger.info("Updating BN stats of the SWA model...")
         update_batchnorm(model, label_loader, unlabel_loader, num_iters=args.num_steps)
-        logger.info("Evaluating the SWA model:")
+        logger.info("Evaluating the SWA model...")
         swa_acc = evaluate(model)
         writer.add_scalar('test/swa-accuracy', swa_acc, epoch)
         # Record the best evaluation result
         is_best = swa_acc > best_acc
         if is_best:
-            beat_acc = swa_acc
-        logger.info("Best SWA Accuracy: %.5f" % beat_acc)
+            best_acc = swa_acc
+        logger.info("Best SWA Accuracy: %.5f" % best_acc)
         save_checkpoint({
             'model': model.state_dict(),
-            'best_acc': beat_acc
+            'best_acc': best_acc
             }, is_best, path=args.save_path, filename="checkpoint-swa.pth")
         epoch += args.average_interval
 

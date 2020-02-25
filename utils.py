@@ -111,10 +111,11 @@ class WeightSWA(object):
             self.swa_model.load_state_dict(student_model_state)
         else:
             inv = 1. / float(self.num_updates)
-            for swa_p, src_p in zip(self.swa_model.parameters(), student_model_state.values()):
-                swa_p.data.sub_(inv*swa_p.data)
-                swa_p.data.add_(inv*src_p.data)
-    
+            for name, param in self.swa_model.named_parameters():
+                src_param = student_model_state[name]
+                param.data.mul_(1.-inv)
+                param.data.add_(inv*src_param.data)
+
     def reset(self):
         self.num_updates = 0
 
