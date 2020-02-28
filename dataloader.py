@@ -21,12 +21,19 @@ def dataloader(dset="cifar10", path="data/cifar10", bs=100, num_workers=8, label
         mean = (0.4376821, 0.4437697, 0.47280442)
         std = (0.19803012, 0.20101562, 0.19703614)
     normaliztion = transforms.Normalize(mean, std)
-    train_transform = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normaliztion
-            ])
+    if dset == "svhn":
+        train_transform = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.ToTensor(),
+                normaliztion
+                ])
+    else:
+        train_transform = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normaliztion
+                ])
     if dset == "cifar10":
         train_dataset = dsets.CIFAR10(root=path, train=True, download=True, transform=train_transform)
     elif dset == "cifar100":
