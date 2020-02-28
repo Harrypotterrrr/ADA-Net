@@ -122,7 +122,7 @@ def main():
         _label_gt = F.one_hot(label_gt, num_classes=args.num_classes).float()
         data_end = time.time()
         
-        # Compute the inner learning rate and outer learning rate
+        # Compute learning rate and meta learning rate
         lr = compute_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
