@@ -3,31 +3,9 @@ from torch import nn
 from torch.autograd import Function
 from torch.nn import functional as F
 
-class GradReverseLayer(Function):
-    @staticmethod
-    def forward(ctx, x):
-        return x.view_as(x)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output.neg()
-
-class Discriminator(nn.Module):
-    def __init__(self, input_dim=128):
-        super(Discriminator, self).__init__()
-        self.discriminator = nn.Sequential(
-                nn.Linear(input_dim, 1024),
-                nn.ReLU(inplace=True),
-                nn.Linear(1024, 1024),
-                nn.ReLU(inplace=True),
-                nn.Linear(1024, 2)
-                )
-
-    def forward(self, x):
-        x = GradReverseLayer.apply(x)
-        out = self.discriminator(x)
-        return out
-
+####################################################################
+###################### ConvLarge Architecture ######################
+####################################################################
 class ConvLarge(nn.Module):
     def __init__(self, input_dim=3, num_classes=10, stochastic=True, top_bn=False):
         super(ConvLarge, self).__init__()
@@ -43,7 +21,7 @@ class ConvLarge(nn.Module):
         self.block8 = self.conv_block(512, 256, 1, 1, 0, 0.1)
         self.block9 = self.conv_block(256, 128, 1, 1, 0, 0.1)
 
-        self.AveragePooling = nn.AdaptiveAvgPool2d((1, 1))
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         
         maxpool = [nn.MaxPool2d(kernel_size=2, stride=2)]
         if stochastic: maxpool.append(nn.Dropout2d())
@@ -60,7 +38,7 @@ class ConvLarge(nn.Module):
                 nn.LeakyReLU(inplace=True, negative_slope=lrelu_slope)
                 )
 
-    def forward(self, x, return_feature=False):
+    def forward(self, x):
         out = self.block1(x)
         out = self.block2(out)
         out = self.block3(out)
@@ -75,15 +53,15 @@ class ConvLarge(nn.Module):
         out = self.block8(out)
         out = self.block9(out)
 
-        feature = self.AveragePooling(out)
+        feature = self.avg_pool(out)
         feature = feature.view(feature.shape[0], -1)
         logits = self.classifier(feature)
         
-        if return_feature:
-            return logits, feature
-        else:
-            return logits
+        return logits
 
+######################################################################
+###################### Shake-Shake Architecture ######################
+######################################################################
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -222,22 +200,14 @@ def shakeshake26(**kwargs):
                         layers=[4, 4, 4],
                         channels=96,
                         downsample='shift_conv', **kwargs)
-    # 26 2x96d
-    # groups = 1
-    # Shake-Even-Image
     return model
 
 if __name__ == '__main__':
     model = ConvLarge(input_dim=3)
-    discriminator = Discriminator(input_dim=128)
 
     img = torch.randn(5, 3, 32, 32)
-    logits, feature = model(img, return_feature=True)
-    flag = discriminator(feature)
-    
-    print(feature.shape)
+    logits = model(img)
     print(logits.shape)
-    print(flag.shape)
 
     model = shakeshake26(num_classes=10)
     logits = model(img)
