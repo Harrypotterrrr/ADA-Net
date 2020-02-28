@@ -126,12 +126,15 @@ def main():
 
         if args.mix_up:
             # Adopt mix-up augmentation
+            model.eval()
             with torch.no_grad():
-                unlabel_pred = model(unlabel_img)
+                label_pred = model(label_img)
+                unlabel_pred = F.softmax(model(unlabel_img), dim=1) 
                 alpha = beta_distribution.sample((args.batch_size,)).cuda()
                 _alpha = alpha.view(-1, 1, 1, 1)
                 interp_img = (label_img * _alpha + unlabel_img * (1. - _alpha)).detach()
                 interp_pseudo_gt = (_label_gt * alpha + unlabel_pred * (1. - alpha)).detach()
+            model.train()
             interp_pred = model(interp_img)
             loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='batchmean')
         else:
@@ -165,12 +168,12 @@ def main():
 
         # Test and save model
         if (step + 1) % args.test_freq == 0 or step == args.total_steps - 1:
-            acc = evaluate(test_loader, model)
+            val_acc = evaluate(test_loader, model)
             
             # Remember best accuracy and save checkpoint
-            is_best = acc > best_acc
+            is_best = val_acc > best_acc
             if is_best:
-                best_acc = acc
+                best_acc = val_acc
             logger.info("Best Accuracy: %.5f" % best_acc)
             save_checkpoint({
                 'step': step + 1,
@@ -185,7 +188,7 @@ def main():
                 writer.add_scalar('train/unlabel-acc', unlabel_top1.item(), step)
             writer.add_scalar('train/loss', loss.item(), step)
             writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], step)
-            writer.add_scalar('test/accuracy', acc, step)
+            writer.add_scalar('test/accuracy', val_acc, step)
             
             # Reset AverageMeters
             losses.reset()
@@ -231,3 +234,4 @@ if __name__ == "__main__":
     main()
     writer.close()
     logger.close()
+
