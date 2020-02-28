@@ -274,7 +274,7 @@ def main():
                     'model': model.state_dict(),
                     'best_acc': best_acc,
                     'optimizer' : optimizer.state_dict()
-                    }, is_best, path=args.save_path, filename="checkpoint-epoch%d.pth"%int(step+1/400))
+                    }, is_best, path=args.save_path, filename="checkpoint.pth")
             # Write to the tfboard
             writer.add_scalar('train/label-acc', label_acc.avg, step)
             writer.add_scalar('train/unlabel-acc', unlabel_acc.avg, step)
