@@ -32,7 +32,6 @@ parser.add_argument('--imcrop', default=224, type=int, metavar='N', help='image 
 parser.add_argument('--warmup', default=5, type=int, help="warmup epochs (small lr and do not impose sparsity)")
 parser.add_argument('--gamma', default=0.1, type=float, metavar='GM', help='decrease learning rate by gamma')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum')
-parser.add_argument('--unlabel-weight', type=float, default=1., help='re-weighting scalar for unlabel data')
 parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
 parser.add_argument('--epsilon', type=float, default=1e-2, help='epsilon for gradient estimation')
 parser.add_argument('--resume', default=None, type=str, metavar='PATH', help='path to the latest checkpoint')
