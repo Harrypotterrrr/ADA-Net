@@ -80,11 +80,8 @@ class HybridTrainPipe(Pipeline):
 class HybridValPipe(Pipeline):
     def __init__(self, batch_size, num_threads, device_id, data_dir, crop, size):
         super(HybridValPipe, self).__init__(batch_size, num_threads, device_id, seed=12 + device_id)
-        if args.use_rec:
-            self.input = ops.MXNetReader(path=join(data_dir, "val.rec"), index_path=join(data_dir, "val.idx"),
-                                         random_shuffle=False, shard_id=args.local_rank, num_shards=args.world_size)
-        else:
-            self.input = ops.FileReader(file_root=data_dir, shard_id=args.local_rank, num_shards=args.world_size, random_shuffle=False)
+        self.input = ops.MXNetReader(path=join(data_dir, "val.rec"), index_path=join(data_dir, "val.idx"),
+                                     random_shuffle=False, shard_id=args.local_rank, num_shards=args.world_size)
         self.decode = ops.ImageDecoder(device="mixed", output_type=types.RGB)
         self.res = ops.Resize(device="gpu", resize_shorter=size, interp_type=types.INTERP_TRIANGULAR)
         self.cmnp = ops.CropMirrorNormalize(device="gpu",
@@ -103,7 +100,6 @@ class HybridValPipe(Pipeline):
 
 torch.backends.cudnn.benchmark = True
 os.makedirs(args.tmp, exist_ok=True)
-
 if args.local_rank == 0:
     tfboard_writer = SummaryWriter(log_dir=args.tmp)
     logger = Logger(join(args.tmp, "log.txt"))
@@ -111,11 +107,13 @@ if args.local_rank == 0:
 def main():
     if args.local_rank == 0:
         logger.info(args)
+    
     # Pytorch distributed setup
     args.gpu = args.local_rank % torch.cuda.device_count()
     torch.cuda.set_device(args.gpu)
     torch.distributed.init_process_group(backend='nccl', init_method='env://')
     args.world_size = torch.distributed.get_world_size()
+    
     # Build DALI dataloader
     pipe = HybridTrainPipe(batch_size=args.batch_size, num_threads=args.workers,
                            device_id=args.local_rank, data_dir=args.data, 
@@ -129,6 +127,7 @@ def main():
     pipe.build()
     val_loader = DALIClassificationIterator(pipe, size=int(pipe.epoch_size("Reader") / args.world_size))
     train_loader_len = int(train_loader._size / args.batch_size)
+    
     # Define model and optimizer
     model_name = "torchvision.models.%s(num_classes=%d)" % (args.arch, args.num_classes)
     model = eval(model_name).cuda()
@@ -140,6 +139,7 @@ def main():
     if args.local_rank == 0:
         logger.info("Optimizer details:")
         logger.info(optimizer)
+    
     # Optionally resume from a checkpoint
     if args.resume is not None:
         assert isfile(args.resume), "=> no checkpoint found at '{}'".format(args.resume)
@@ -155,6 +155,7 @@ def main():
     else:
         args.start_epoch = 0
         if args.local_rank == 0: best_acc1 = 0    
+    
     # Define learning rate scheduler
     scheduler = CosAnnealingLR(loader_len=train_loader_len, epochs=args.epochs,
                                lr_max=args.lr, warmup_epochs=args.warmup,
@@ -164,15 +165,18 @@ def main():
         # Train and evaluate
         train(train_loader, model, optimizer, scheduler, epoch)
         acc1, acc5 = validate(val_loader, model)
+        
         if args.local_rank == 0:
             # Write to tfboard
             tfboard_writer.add_scalar('test/acc1', acc1, epoch)
             tfboard_writer.add_scalar('test/acc5', acc5, epoch)
+            
             # Remember best prec@1 and save checkpoint
             is_best = acc1 > best_acc1
             if is_best:
                 best_acc1 = acc1
             logger.info("Best acc1=%.5f" % best_acc1)
+            
             # Save checkpoint
             save_checkpoint({
                 'epoch': epoch + 1,
@@ -185,6 +189,7 @@ def train(train_loader, model, optimizer, scheduler, epoch):
     if args.local_rank == 0:
         data_times, batch_times, losses, acc1, acc5 = [AverageMeter() for _ in range(5)]
         train_loader_len = int(np.ceil(train_loader._size/args.batch_size))
+    
     # Switch to train mode
     model.train()
     if args.local_rank == 0:
@@ -195,23 +200,29 @@ def train(train_loader, model, optimizer, scheduler, epoch):
         target = data[0]["label"].squeeze().cuda().long()
         if args.local_rank == 0:
             start = time.time()
+        
         # Compute the learning rate
         lr = scheduler.step()
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
+        
         # Forward training image and compute cross entropy loss
         prediction = model(image)
         loss = F.cross_entropy(prediction, target, reduction='mean')
+        
         # One SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
         # Compute accuracy
         top1, top5 = accuracy(prediction, target, topk=(1, 5))
+        
         # Gather tensors from different devices
         loss = reduce_tensor(loss)
         top1 = reduce_tensor(top1)
         top5 = reduce_tensor(top5)
+        
         # Update AverageMeter stats
         if args.local_rank == 0:
             data_times.update(start - end)
@@ -220,6 +231,7 @@ def train(train_loader, model, optimizer, scheduler, epoch):
             acc1.update(top1.item(), image.size(0))
             acc5.update(top5.item(), image.size(0))
         # torch.cuda.synchronize()
+        
         # Log training info
         if i % args.print_freq == 0 and args.local_rank == 0:
             tfboard_writer.add_scalar("train/learning-rate", lr, epoch*train_loader_len+i)
@@ -232,6 +244,7 @@ def train(train_loader, model, optimizer, scheduler, epoch):
                                 ))
         if args.local_rank == 0:
             end = time.time()
+    
     # Reset the training loader
     train_loader.reset()
     if args.local_rank == 0:
@@ -244,20 +257,25 @@ def validate(val_loader, model):
     if args.local_rank == 0:
         losses, top1, top5 = [AverageMeter() for _ in range(3)]
         val_loader_len = int(np.ceil(val_loader._size/50))
+    
     # Switch to evaluate mode
     model.eval()
     for i, data in enumerate(val_loader):
         image = data[0]["data"]
         target = data[0]["label"].squeeze().cuda().long()
+       
         # Compute output
         prediction = model(image)
         loss = F.cross_entropy(prediction, target, reduction='mean')
+        
         # Measure accuracy and record loss
         acc1, acc5 = accuracy(prediction, target, topk=(1, 5))
+        
         # Gather tensors from different devices
         loss = reduce_tensor(loss)
         acc1 = reduce_tensor(acc1)
         acc5 = reduce_tensor(acc5)
+        
         # Update meters and log info
         if args.local_rank == 0:
             losses.update(loss.item(), image.size(0))
@@ -269,6 +287,7 @@ def validate(val_loader, model):
                             .format(i, val_loader_len, loss=losses, top1=top1, top5=top5))
     if args.local_rank == 0:
         logger.info(' * Prec@1 {top1.avg:.5f} Prec@5 {top5.avg:.5f}'.format(top1=top1, top5=top5))
+    
     # Reset the validation loader
     val_loader.reset()
     top1 = torch.tensor([top1.avg]).cuda() if args.local_rank == 0 else torch.tensor([0.]).cuda()
@@ -285,3 +304,5 @@ def reduce_tensor(tensor):
 
 if __name__ == '__main__':
     main()
+    tfboard_writer.close()
+    logger.close()
