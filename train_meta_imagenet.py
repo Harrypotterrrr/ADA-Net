@@ -390,5 +390,6 @@ def reduce_tensor(tensor):
 
 if __name__ == '__main__':
     main()
-    tfboard_writer.close()
-    logger.close()
+    if args.local_rank == 0:
+        tfboard_writer.close()
+        logger.close()

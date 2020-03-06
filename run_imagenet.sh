@@ -10,7 +10,7 @@ CUDA_VISIBLE_DEVICES='0,1,2,3' python -m torch.distributed.launch --nproc_per_no
     --warmup "5"
 
 ### Run meta-learning algorithm
-CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' python -m torch.distributed.launch --nproc_per_node=8 train_imagenet.py \
+CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' python -m torch.distributed.launch --nproc_per_node=8 train_meta_imagenet.py \
     -a "resnet18" \
     --data "/media/ssd/imagenet/rec" \
     --tmp "results/imagenet-meta-learning-epoch600-bs512-cosine" \
