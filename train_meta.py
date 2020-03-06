@@ -13,7 +13,8 @@ parser = argparse.ArgumentParser()
 # Basic configuration
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'svhn'])
 parser.add_argument('--data-path', type=str, default='./data', help='Data path')
-parser.add_argument('--num-label', type=int, default=4000)
+parser.add_argument('--num-label', type=int, default=4000, help='Number of labeled data')
+parser.add_argument('--additional', type=str, default='None', choices=['None', '500k', '237k'], help='Additional unlabeled data from TinyImages Dataset')
 parser.add_argument('-a', '--architecture', type=str, default='convlarge', choices=['convlarge', 'shakeshake'], help='Network architecture')
 parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
 parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
@@ -60,7 +61,7 @@ torch.backends.cudnn.benchmark = True
 # Define dataloader
 logger.info("Loading data...")
 label_loader, unlabel_loader, test_loader = dataloader(
-        args.dataset, args.data_path, args.batch_size, args.num_workers, args.num_label
+        args.dataset, args.data_path, args.batch_size, args.num_workers, args.num_label, args.additional
         )
 
 # Build model and optimizer
