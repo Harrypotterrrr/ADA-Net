@@ -15,6 +15,18 @@ def data_gen(loader):
 def dataloader(dset="cifar10", path="data", bs=100, num_workers=8, label_num=4000, additional='None'):
     assert dset in ["cifar10", "cifar100", "svhn"]
     assert additional in ['None', '237k', '500k']
+
+    if dset == "cifar10":
+        mean = (0.49139968, 0.48215841, 0.44653091)
+        std = (0.24703223, 0.24348513, 0.26158784)
+    elif dset =="cifar100":
+        mean = (0.50707516, 0.48654887, 0.44091784)
+        std = (0.26733429, 0.25643846, 0.27615047)
+    elif dset =="svhn":
+        mean = (0.4376821, 0.4437697, 0.47280442)
+        std = (0.19803012, 0.20101562, 0.19703614)
+    normaliztion = transforms.Normalize(mean, std)
+
     if additional != 'None':
         assert dset == "cifar100" and label_num == 50000, 'Use additional data only for cifar100 dataset with 50k labeled data'
         train_transform = transforms.Compose([
@@ -31,16 +43,7 @@ def dataloader(dset="cifar10", path="data", bs=100, num_workers=8, label_num=400
                 batch_size=bs, num_workers=num_workers, drop_last=True
                 )
     else:
-        if dset == "cifar10":
-            mean = (0.49139968, 0.48215841, 0.44653091)
-            std = (0.24703223, 0.24348513, 0.26158784)
-        elif dset =="cifar100":
-            mean = (0.50707516, 0.48654887, 0.44091784)
-            std = (0.26733429, 0.25643846, 0.27615047)
-        elif dset =="svhn":
-            mean = (0.4376821, 0.4437697, 0.47280442)
-            std = (0.19803012, 0.20101562, 0.19703614)
-        normaliztion = transforms.Normalize(mean, std)
+
         if dset == "svhn":
             train_transform = transforms.Compose([
                     transforms.RandomCrop(32, padding=4),
@@ -84,7 +87,7 @@ def dataloader(dset="cifar10", path="data", bs=100, num_workers=8, label_num=400
 
 class TinyImages(Dataset):
     """ Tiny Images Dataset """
-    def __init__(self, root='data', which, transform=None, NO_LABEL=-1):
+    def __init__(self, root='data', which=None, transform=None, NO_LABEL=-1):
         self.data_path = join(root, 'tiny_images.bin')
         pkl_path= join(root, 'tiny_index.pkl')
         meta_path = join(root, 'cifar100_meta.meta')
