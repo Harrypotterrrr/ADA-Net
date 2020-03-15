@@ -33,7 +33,7 @@ def dataloader(dset="cifar10", path="data", bs=100, num_workers=8, label_num=400
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.50707516, 0.48654887, 0.44091784), (0.26733429, 0.25643846, 0.27615047))
+                transforms.Normalize(mean, std)
                 ])
         train_dataset = dsets.CIFAR100(root=path, train=True, download=True, transform=train_transform)
         label_loader = DataLoader(train_dataset, batch_size=bs, num_workers=num_workers, drop_last=True)
@@ -135,7 +135,7 @@ class TinyImages(Dataset):
 class TinyImages(Dataset):
     """ Tiny Images Dataset """
     def __init__(self, root='data', which=None, transform=None, NO_LABEL=-1):
-        with open(join(root, "tiny_237k.pkl"), 'rb') as f:
+        with open(join(root, "tiny_237k.bin"), 'rb') as f:
             self.data = pickle.load(f)
         self.transform = transform
         self.no_label = NO_LABEL

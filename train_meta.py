@@ -108,6 +108,7 @@ def compute_lr(step):
 
 def main():
     data_times, batch_times, label_losses, unlabel_losses, label_acc, unlabel_acc = [AverageMeter() for _ in range(6)]
+    if args.mix_up: interp_losses = AverageMeter()
     best_acc = 0.
     logger.info("Start training...")
     for step in range(args.start_step, args.total_steps):
@@ -184,7 +185,7 @@ def main():
                 interp_img = (label_img * _alpha + unlabel_img * (1. - _alpha)).detach()
                 interp_pseudo_gt = (_label_gt * alpha + unlabel_pseudo_gt * (1. - alpha)).detach()
             interp_pred = model(interp_img)
-            label_loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='batchmean')
+            interp_loss = F.kl_div(F.log_softmax(interp_pred, dim=1), interp_pseudo_gt, reduction='batchmean')
         else:
             # Regular label loss
             label_pred = model(label_img)
@@ -196,7 +197,7 @@ def main():
             unlabel_loss = F.kl_div(F.log_softmax(unlabel_pred, dim=1), unlabel_pseudo_gt, reduction='batchmean')
         elif args.consistency == 'mse':
             unlabel_loss = torch.norm(F.softmax(unlabel_pred, dim=1)-unlabel_pseudo_gt, p=2, dim=1).pow(2).mean()
-        loss = label_loss + weight * unlabel_loss
+        loss = interp_loss + weight * unlabel_loss if args.mix_up else label_loss + weight * unlabel_loss
                 
         # One SGD step
         optimizer.zero_grad()
@@ -213,6 +214,7 @@ def main():
         unlabel_losses.update(unlabel_loss.item(), unlabel_img.size(0))
         label_acc.update(label_top1.item(), label_img.size(0))
         unlabel_acc.update(unlabel_top1.item(), unlabel_img.size(0))
+        if args.mix_up: interp_losses.update(interp_loss.item(), label_img.size(0))
         
         # Print and log
         if step % args.print_freq == 0:
@@ -245,12 +247,14 @@ def main():
             writer.add_scalar('train/unlabel-loss', unlabel_losses.avg, step)
             writer.add_scalar('train/lr', lr, step)
             writer.add_scalar('test/accuracy', acc, step)
+            if args.mix_up: writer.add_scalar('train/interp-loss', interp_losses.avg, step)
             
             # Reset AverageMeters
             label_losses.reset()
             unlabel_losses.reset()
             label_acc.reset()
             unlabel_acc.reset()
+            if args.mix_up: interp_losses.reset()
 
 @torch.no_grad()
 def evaluate(test_loader, model):
