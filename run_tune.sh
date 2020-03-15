@@ -536,4 +536,36 @@ CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
         --consistency "mse" \
         --print-freq "100";
         
-
+######## 03/15 ########
+### 4x2080ti
+CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
+        --dataset "cifar100" \
+        --num-label "50000" \
+        --additional '500k' \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '1.0' \
+        --save-path "results/cifar100-labels50000-tiny500k-mile30-35-mixup1-auto-weight1-mse" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "1e-4";
+        
+CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
+        --dataset "cifar100" \
+        --num-label "50000" \
+        --additional '237k' \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '1.0' \
+        --save-path "results/cifar100-labels50000-tiny237k-mile30-35-mixup1-auto-weight1-mse" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "1e-4";

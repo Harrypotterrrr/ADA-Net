@@ -85,8 +85,9 @@ def dataloader(dset="cifar10", path="data", bs=100, num_workers=8, label_num=400
     
     return data_gen(label_loader), data_gen(unlabel_loader), test_loader
 
+"""
 class TinyImages(Dataset):
-    """ Tiny Images Dataset """
+    ''' Tiny Images Dataset '''
     def __init__(self, root='data', which=None, transform=None, NO_LABEL=-1):
         self.data_path = join(root, 'tiny_images.bin')
         pkl_path= join(root, 'tiny_index.pkl')
@@ -129,3 +130,31 @@ class TinyImages(Dataset):
             img = np.fromfile(f, dtype='uint8', count=3072).reshape(3, 32, 32).transpose((0, 2, 1))
             img = Image.fromarray(np.rollaxis(img, 0, 3))
         return img
+"""
+
+class TinyImages(Dataset):
+    """ Tiny Images Dataset """
+    def __init__(self, root='data', which=None, transform=None, NO_LABEL=-1):
+        with open(join(root, "tiny_237k.pkl"), 'rb') as f:
+            self.data = pickle.load(f)
+        self.transform = transform
+        self.no_label = NO_LABEL
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (image, target) where target is index of the target class.
+        """
+        img = Image.fromarray(self.data[index])
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, self.no_label
+
+    def __len__(self):
+        return len(self.data)
+
