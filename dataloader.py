@@ -186,7 +186,7 @@ class SVHN(dsets.SVHN):
     def __getitem__(self, idx):
         label_idx = self.repeated_label_indices[idx]
         label_img, label_target = self.data[label_idx], int(self.labels[label_idx])
-        label_img = Image.fromarray(label_img)
+        label_img = Image.fromarray(np.transpose(label_img, (1, 2, 0)))
 
         if self.transform is not None:
             label_img = self.transform(label_img)
@@ -196,7 +196,7 @@ class SVHN(dsets.SVHN):
         if self.return_unlabel:
             unlabel_idx = self.repeated_unlabel_indices[idx]
             unlabel_img, unlabel_target = self.data[unlabel_idx], int(self.labels[unlabel_idx])
-            unlabel_img = Image.fromarray(unlabel_img)
+            unlabel_img = Image.fromarray(np.transpose(unlabel_img, (1, 2, 0)))
     
             if self.transform is not None:
                 unlabel_img = self.transform(unlabel_img)
@@ -224,7 +224,7 @@ def dataloader(dset, path, bs, num_workers, num_labels, num_iters, return_unlabe
     assert additional in ['None', '237k', '500k']
     if additional != 'None':
         assert dset == "cifar100" and num_labels == 50000, 'Use additional data only for cifar100 dataset with 50k labeled data'
-        train_kwargs[dset]{"additional": additional}
+        train_kwargs[dset]["additional"] = additional
     
     train_dataset = train_dset[dset](
             root = path,
