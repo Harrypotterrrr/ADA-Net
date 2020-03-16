@@ -1,5 +1,6 @@
 import os, random, pickle
 from os.path import join, isfile
+from tqdm import tqdm
 import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
@@ -60,14 +61,14 @@ def get_class_balanced_labels(targets, labels_per_class):
         else:
             unlabel_indices.append(idx)
         
-    return label_indices, unlabel_indices, label_count
+    return label_indices, unlabel_indices
 
 def get_repeated_indices(indices, num_iters, batch_size):
     length = num_iters * batch_size
     num_epochs = length // len(indices) + 1
     repeated_indices = []
     
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs), desc='Pre-allocating indices...'):
         random.shuffle(indices)
         repeated_indices += indices
     
@@ -226,11 +227,11 @@ def dataloader(dset, path, bs, num_workers, num_labels, num_iters, return_unlabe
     
     train_dataset = train_dset[dset](
             root = path,
-            train_transform = train_transform[dset],
             num_labels = num_labels,
             num_iters = num_iters,
             batch_size = bs,
-            return_unlabel = return_unlabel
+            return_unlabel = return_unlabel,
+            transform = train_transform[dset],
             **train_kwargs[dset]
             )
     train_loader = DataLoader(train_dataset, batch_size=bs, num_workers=num_workers, shuffle=False)
@@ -242,7 +243,7 @@ def dataloader(dset, path, bs, num_workers, num_labels, num_iters, return_unlabe
     test_dataset = test_dset[dset](root=path, transform=test_transform, **test_kwargs[dset])
     test_loader = DataLoader(test_dataset, batch_size=100, num_workers=num_workers, shuffle=False)
     
-    return train_loader, test_loader
+    return iter(train_loader), test_loader
 
 """
 class TinyImages(Dataset):
