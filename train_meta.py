@@ -60,8 +60,15 @@ torch.backends.cudnn.benchmark = True
 
 # Define dataloader
 logger.info("Loading data...")
-label_loader, unlabel_loader, test_loader = dataloader(
-        args.dataset, args.data_path, args.batch_size, args.num_workers, args.num_label, args.additional
+train_loader, test_loader = dataloader(
+        dset = args.dataset,
+        path = args.data_path,
+        bs = args.batch_size,
+        num_workers = args.num_workers,
+        num_labels = args.num_label,
+        num_iters = args.total_steps,
+        return_unlabel = True,
+        additional = args.additional
         )
 
 # Build model and optimizer
@@ -114,8 +121,7 @@ def main():
     for step in range(args.start_step, args.total_steps):
         # Load data and distribute to devices
         data_start = time.time()
-        label_img, label_gt = next(label_loader)
-        unlabel_img, unlabel_gt = next(unlabel_loader)
+        label_img, label_gt, unlabel_img, unlabel_gt = next(train_loader)
         
         label_img = label_img.cuda()
         label_gt = label_gt.cuda()
