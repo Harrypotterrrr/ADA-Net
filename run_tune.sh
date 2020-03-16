@@ -569,3 +569,126 @@ CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
         --warmup "4000" \
         --const-steps "0" \
         --weight-decay "1e-4";
+
+######## 03/16 ########
+### qinghai
+CUDA_VISIBLE_DEVICES='0' python3 train_meta.py \
+        --dataset "cifar10" \
+        --num-label "4000" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '1.0' \
+        --save-path "results/cifar10-labels4000-mile30-35-mixup1-wd1e-4-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "1e-4";
+
+CUDA_VISIBLE_DEVICES='1' python3 train_meta.py \
+        --dataset "cifar100" \
+        --num-label "10000" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '1.0' \
+        --save-path "results/cifar100-labels10000-mile30-35-mixup1-wd1e-4-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "1e-4";
+
+CUDA_VISIBLE_DEVICES='2' python3 train_meta.py \
+        --dataset "svhn" \
+        --num-label "1000" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '0.1' \
+        --save-path "results/svhn-labels1000-mile30-35-mixup0.1-wd5e-5-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "5e-5";
+
+CUDA_VISIBLE_DEVICES='3' python3 train_meta.py \
+        --dataset "cifar100" \
+        --num-label "50000" \
+        --additional "237k" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '1.0' \
+        --save-path "results/cifar100-labels50000-unlabel237k-mile30-35-mixup0.1-wd1e-4-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "1e-4";
+
+CUDA_VISIBLE_DEVICES='5' python3 train_meta.py \
+        --dataset "svhn" \
+        --num-label "500" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '0.1' \
+        --save-path "results/svhn-labels500-mile30-35-mixup0.1-wd5e-5-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "5e-5";
+
+CUDA_VISIBLE_DEVICES='6' python3 train_meta.py \
+        --dataset "svhn" \
+        --num-label "250" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '0.1' \
+        --save-path "results/svhn-labels250-mile30-35-mixup0.1-wd5e-5-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "5e-5";
+
+CUDA_VISIBLE_DEVICES='6' python3 train_meta.py \
+        --dataset "svhn" \
+        --num-label "250" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '0.1' \
+        --save-path "results/svhn-labels250-mile30-35-mixup0.1-wd5e-5-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "5e-5";
+
+CUDA_VISIBLE_DEVICES='7' python3 train_meta.py \
+        --dataset "cifar10" \
+        --num-label "1000" \
+        -a "convlarge" \
+        --mix-up \
+        --alpha '1.0' \
+        --save-path "results/cifar10-labels1000-mile30-35-mixup1-wd1e-4-balanced" \
+        --total-steps "400000" \
+        --milestones "[300000, 3500000]" \
+        --lr "0.1" \
+        --consistency "mse" \
+        --warmup "4000" \
+        --const-steps "0" \
+        --weight-decay "1e-4";

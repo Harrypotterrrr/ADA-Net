@@ -68,7 +68,7 @@ def get_repeated_indices(indices, num_iters, batch_size):
     num_epochs = length // len(indices) + 1
     repeated_indices = []
     
-    for epoch in tqdm(range(num_epochs), desc='Pre-allocating indices...'):
+    for epoch in tqdm(range(num_epochs), desc='Pre-allocating indices'):
         random.shuffle(indices)
         repeated_indices += indices
     
@@ -185,7 +185,7 @@ class SVHN(dsets.SVHN):
     
     def __getitem__(self, idx):
         label_idx = self.repeated_label_indices[idx]
-        label_img, label_target = self.data[label_idx], self.labels[label_idx]
+        label_img, label_target = self.data[label_idx], int(self.labels[label_idx])
         label_img = Image.fromarray(label_img)
 
         if self.transform is not None:
@@ -195,7 +195,7 @@ class SVHN(dsets.SVHN):
         
         if self.return_unlabel:
             unlabel_idx = self.repeated_unlabel_indices[idx]
-            unlabel_img, unlabel_target = self.data[unlabel_idx], self.labels[unlabel_idx]
+            unlabel_img, unlabel_target = self.data[unlabel_idx], int(self.labels[unlabel_idx])
             unlabel_img = Image.fromarray(unlabel_img)
     
             if self.transform is not None:
@@ -224,6 +224,7 @@ def dataloader(dset, path, bs, num_workers, num_labels, num_iters, return_unlabe
     assert additional in ['None', '237k', '500k']
     if additional != 'None':
         assert dset == "cifar100" and num_labels == 50000, 'Use additional data only for cifar100 dataset with 50k labeled data'
+        train_kwargs[dset]{"additional": additional}
     
     train_dataset = train_dset[dset](
             root = path,

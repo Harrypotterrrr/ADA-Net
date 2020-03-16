@@ -72,7 +72,7 @@ train_loader, test_loader = dataloader(
         )
 
 # Build model and optimizer
-logger.info("Building model and optimzer...")
+logger.info("Building model and optimizer...")
 if args.architecture == "convlarge":
     model = ConvLarge(num_classes=args.num_classes, stochastic=True).cuda()
 elif args.architecture == "shakeshake":
