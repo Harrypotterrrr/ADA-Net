@@ -63,7 +63,8 @@ train_loader, test_loader = dataloader(
         num_workers = args.num_workers,
         num_labels = args.num_label,
         num_iters = args.total_steps,
-        return_unlabel = args.mix_up
+        return_unlabel = args.mix_up,
+        save_path = args.save_path
         )
 
 # Build model and optimizer
@@ -121,7 +122,7 @@ def main():
         if args.mix_up:
             label_img, label_gt, unlabel_img, unlabel_gt = next(train_loader)
         else:
-            label_img, label_gt, _, _ = next(train_loader)
+            label_img, label_gt = next(train_loader)
         
         label_img = label_img.cuda()
         label_gt = label_gt.cuda()

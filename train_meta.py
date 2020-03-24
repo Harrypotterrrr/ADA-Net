@@ -68,7 +68,8 @@ train_loader, test_loader = dataloader(
         num_labels = args.num_label,
         num_iters = args.total_steps,
         return_unlabel = True,
-        additional = args.additional
+        additional = args.additional,
+        save_path = args.save_path
         )
 
 # Build model and optimizer
