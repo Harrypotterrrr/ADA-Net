@@ -1,12 +1,66 @@
 import argparse, torch
 from os.path import  isfile, join
 import numpy as np
+import torch.nn as nn
 from torch.utils.data import DataLoader, SubsetRandomSampler
 import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
-from model import ConvLarge
+from utils import make_folder
+
+class ConvLarge(nn.Module):
+    def __init__(self, input_dim=3, num_classes=10, stochastic=True, top_bn=False):
+        super(ConvLarge, self).__init__()
+        self.block1 = self.conv_block(input_dim, 128, 3, 1, 1, 0.1)
+        self.block2 = self.conv_block(128, 128, 3, 1, 1, 0.1)
+        self.block3 = self.conv_block(128, 128, 3, 1, 1, 0.1)
+
+        self.block4 = self.conv_block(128, 256, 3, 1, 1, 0.1)
+        self.block5 = self.conv_block(256, 256, 3, 1, 1, 0.1)
+        self.block6 = self.conv_block(256, 256, 3, 1, 1, 0.1)
+
+        self.block7 = self.conv_block(256, 512, 3, 1, 0, 0.1)
+        self.block8 = self.conv_block(512, 256, 1, 1, 0, 0.1)
+        self.block9 = self.conv_block(256, 128, 1, 1, 0, 0.1)
+
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        maxpool = [nn.MaxPool2d(kernel_size=2, stride=2)]
+        if stochastic: maxpool.append(nn.Dropout2d())
+        self.maxpool = nn.Sequential(*maxpool)
+        
+        classifier = [nn.Linear(128, num_classes)]
+        if top_bn: classifier.append(nn.BatchNorm1d(num_classes))
+        self.classifier = nn.Sequential(*classifier)
+
+    def conv_block(self, input_dim, out_dim, kernel_size=3, stride=1, padding=1, lrelu_slope=0.01):
+        return nn.Sequential(
+                nn.Conv2d(input_dim, out_dim, kernel_size, stride, padding, bias=False),
+                nn.BatchNorm2d(out_dim),
+                nn.LeakyReLU(inplace=True, negative_slope=lrelu_slope)
+                )
+
+    def forward(self, x):
+        out = self.block1(x)
+        out = self.block2(out)
+        out = self.block3(out)
+        out = self.maxpool(out)
+
+        out = self.block4(out)
+        out = self.block5(out)
+        out = self.block6(out)
+        out = self.maxpool(out)
+
+        out = self.block7(out)
+        out = self.block8(out)
+        out = self.block9(out)
+
+        feature = self.avg_pool(out)
+        feature = feature.view(feature.shape[0], -1)
+        # logits = self.classifier(feature)
+        
+        return feature
 
 meanstd = {
         'cifar10': [(0.49139968, 0.48215841, 0.44653091), (0.24703223, 0.24348513, 0.26158784)],
@@ -20,6 +74,8 @@ parser.add_argument('--checkpoint-path', type=str, help='Path to checkpoint file
 parser.add_argument('--index-path', type=str, help='Path to indices file')
 parser.add_argument('--save-path', type=str, help='Directory of save path')
 args = parser.parse_args()
+
+make_folder(args.save_path)
 
 with open(args.index_path, 'r') as f:
     label_indices = [line.rstrip('\n') for line in f]
