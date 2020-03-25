@@ -182,23 +182,34 @@ if args.num_point is not None:
     random.shuffle(idx)
     idx = idx[:args.num_point]
     embedded_unlabel_features = embedded_unlabel_features[idx]
+    unlabel_categories = unlabel_categories[idx]
 
     idx = list(range(embedded_test_features.shape[0]))
     random.shuffle(idx)
     idx = idx[:args.num_point]
     embedded_test_features = embedded_test_features[idx]
+    test_categories = test_categories[idx]
+
+color_dict = ["lightcoral", "darkgreen", "cadetblue", "darkorange", "peru",
+              "cornflowerblue", "khaki", "magenta", "gray", "slategrey"]
 
 fig, axes = plt.subplots(1, 4, figsize=(24, 6))
 
-axes[0].scatter(embedded_label_features[:, 0], embedded_label_features[:, 1], c="red", cmap=plt.cm.Spectral, s=10)
+for i in range(len(color_dict)):
+    idx_i = (label_categories == i)
+    axes[0].scatter(embedded_label_features[idx_i, 0], embedded_label_features[idx_i, 1], c=color_dict[i], cmap=plt.cm.Spectral, s=10)
 axes[0].set_xticks([])
 axes[0].set_yticks([])
 
-axes[1].scatter(embedded_unlabel_features[:, 0], embedded_unlabel_features[:, 1], c="blue", cmap=plt.cm.Spectral, s=10)
+for i in range(len(color_dict)):
+    idx_i = (unlabel_categories == i)
+    axes[1].scatter(embedded_unlabel_features[idx_i, 0], embedded_unlabel_features[idx_i, 1], c=color_dict[i], cmap=plt.cm.Spectral, s=10)
 axes[1].set_xticks([])
 axes[1].set_yticks([])
 
-axes[2].scatter(embedded_test_features[:, 0], embedded_test_features[:, 1], c="grey", cmap=plt.cm.Spectral, s=10)
+for i in range(len(color_dict)):
+    idx_i = (test_categories == i)
+    axes[2].scatter(embedded_test_features[idx_i, 0], embedded_test_features[idx_i, 1], c=color_dict[i], cmap=plt.cm.Spectral, s=10)
 axes[2].set_xticks([])
 axes[2].set_yticks([])
 
