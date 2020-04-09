@@ -7,14 +7,14 @@ from tensorboardX import SummaryWriter
 
 from dataloader import dataloader
 from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint
-from model import ConvLarge, shakeshake26
+from model import ConvLarge, shakeshake26, wideresnet28
 
 parser = argparse.ArgumentParser()
 # Basic configuration
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'svhn'])
 parser.add_argument('--data-path', type=str, default='./data', help='Data path')
 parser.add_argument('--num-label', type=int, default=4000)
-parser.add_argument('-a', '--architecture', type=str, default='convlarge', choices=['convlarge', 'shakeshake'], help='Network architecture')
+parser.add_argument('-a', '--architecture', type=str, default='convlarge', choices=['convlarge', 'shakeshake', 'wrn'], help='Network architecture')
 parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
 parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
 # Training setting
@@ -72,6 +72,8 @@ if args.architecture == "convlarge":
     model = ConvLarge(num_classes=args.num_classes, stochastic=True).cuda()
 elif args.architecture == "shakeshake":
     model = shakeshake26(num_classes=args.num_classes).cuda()
+elif args.architecture == "wrn":
+    model = wideresnet28(num_classes=args.num_classes).cuda()
 optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 logger.info("Model:\n%s\nOptimizer:\n%s" % (str(model), str(optimizer)))
 
@@ -121,7 +123,7 @@ def main():
         if args.mix_up:
             label_img, label_gt, unlabel_img, unlabel_gt = next(train_loader)
         else:
-            label_img, label_gt, _, _ = next(train_loader)
+            label_img, label_gt = next(train_loader)
         
         label_img = label_img.cuda()
         label_gt = label_gt.cuda()

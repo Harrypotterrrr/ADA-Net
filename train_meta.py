@@ -7,7 +7,7 @@ from tensorboardX import SummaryWriter
 
 from dataloader import dataloader
 from utils import make_folder, AverageMeter, Logger, accuracy, save_checkpoint, compute_weight
-from model import ConvLarge, shakeshake26
+from model import ConvLarge, shakeshake26, wideresnet28
 
 parser = argparse.ArgumentParser()
 # Basic configuration
@@ -15,11 +15,11 @@ parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10'
 parser.add_argument('--data-path', type=str, default='./data', help='Data path')
 parser.add_argument('--num-label', type=int, default=4000, help='Number of labeled data')
 parser.add_argument('--additional', type=str, default='None', choices=['None', '500k', '237k'], help='Additional unlabeled data from TinyImages Dataset')
-parser.add_argument('-a', '--architecture', type=str, default='convlarge', choices=['convlarge', 'shakeshake'], help='Network architecture')
+parser.add_argument('-a', '--architecture', type=str, default='convlarge', choices=['convlarge', 'shakeshake', 'wrn'], help='Network architecture')
 parser.add_argument('--mix-up', action='store_true', help='Use mix-up augmentation')
 parser.add_argument('--alpha', type=float, default=1., help='Concentration parameter of Beta distribution')
 parser.add_argument('--weight', type=float, default=1., help='re-weighting scalar for the additional loss')
-parser.add_argument('--consistency', type=str, default='kl', choices=['kl', 'mse'], help='Consistency loss type')
+parser.add_argument('--consistency', type=str, default='mse', choices=['kl', 'mse'], help='Consistency loss type')
 # Training setting
 parser.add_argument('--total-steps', type=int, default=400000, help='Start step (for resume)')
 parser.add_argument('--start-step', type=int, default=0, help='Start step (for resume)')
@@ -77,6 +77,8 @@ if args.architecture == "convlarge":
     model = ConvLarge(num_classes=args.num_classes, stochastic=True).cuda()
 elif args.architecture == "shakeshake":
     model = shakeshake26(num_classes=args.num_classes).cuda()
+elif args.architecture == "wrn":
+    model = wideresnet28(num_classes=args.num_classes).cuda()
 optimizer = SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 logger.info("Model:\n%s\nOptimizer:\n%s" % (str(model), str(optimizer)))
 

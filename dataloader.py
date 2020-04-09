@@ -108,10 +108,10 @@ class CIFAR10(dsets.CIFAR10):
                 unlabel_img = self.transform(unlabel_img)
             if self.target_transform is not None:
                 unlabel_target = self.target_transform(unlabel_target)
-        else:
-            unlabel_img, unlabel_target = None, None
 
-        return label_img, label_target, unlabel_img, unlabel_target
+            return label_img, label_target, unlabel_img, unlabel_target
+        else:
+            return label_img, label_target
 
 class CIFAR100(dsets.CIFAR100):
     num_classes = 100
@@ -124,7 +124,8 @@ class CIFAR100(dsets.CIFAR100):
         if self.additional != 'None':
             with open(join(self.root, "tiny_237k.bin"), 'rb') as f:
                 self.additional_data = pickle.load(f)
-            self.no_label = -1
+            with open(join(self.root, "tiny2cifar_labels.pkl"), 'rb') as f:
+                self.additional_targets = pickle.load(f)
             
             self.repeated_label_indices = get_repeated_indices(list(range(len(self.data))), num_iters, batch_size)
             self.repeated_unlabel_indices = get_repeated_indices(list(range(len(self.additional_data))), num_iters, batch_size)
@@ -153,7 +154,9 @@ class CIFAR100(dsets.CIFAR100):
     
             if self.transform is not None:
                 unlabel_img = self.transform(unlabel_img)
-            unlabel_target = self.no_label
+            unlabel_target = self.additional_targets[unlabel_idx]
+        
+            return label_img, label_target, unlabel_img, unlabel_target
         elif self.return_unlabel:
             unlabel_idx = self.repeated_unlabel_indices[idx]
             unlabel_img, unlabel_target = self.data[unlabel_idx], self.targets[unlabel_idx]
@@ -163,10 +166,10 @@ class CIFAR100(dsets.CIFAR100):
                 unlabel_img = self.transform(unlabel_img)
             if self.target_transform is not None:
                 unlabel_target = self.target_transform(unlabel_target)
+        
+            return label_img, label_target, unlabel_img, unlabel_target
         else:
-            unlabel_img, unlabel_target = None, None
-    
-        return label_img, label_target, unlabel_img, unlabel_target
+            return label_img, label_target
 
 class SVHN(dsets.SVHN):
     num_classes = 10
@@ -202,10 +205,10 @@ class SVHN(dsets.SVHN):
                 unlabel_img = self.transform(unlabel_img)
             if self.target_transform is not None:
                 unlabel_target = self.target_transform(unlabel_target)
+        
+            return label_img, label_target, unlabel_img, unlabel_target
         else:
-            unlabel_img, unlabel_target = None, None
-
-        return label_img, label_target, unlabel_img, unlabel_target
+            return label_img, label_target
 
 train_dset = {
         'cifar10': CIFAR10,
@@ -298,8 +301,10 @@ class TinyImages(Dataset):
     def __init__(self, root='data', which=None, transform=None, NO_LABEL=-1):
         with open(join(root, "tiny_237k.bin"), 'rb') as f:
             self.data = pickle.load(f)
+        with open(join(root, "tiny2cifar_labels.pkl"), 'rb') as f:
+            self.targets = pickle.load(f)
         self.transform = transform
-        self.no_label = NO_LABEL
+        # self.no_label = NO_LABEL
 
     def __getitem__(self, index):
         """
@@ -310,11 +315,12 @@ class TinyImages(Dataset):
             tuple: (image, target) where target is index of the target class.
         """
         img = Image.fromarray(self.data[index])
+        targets = self.targets[index]
 
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, self.no_label
+        return img, targets
 
     def __len__(self):
         return len(self.data)
