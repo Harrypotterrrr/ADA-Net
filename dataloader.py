@@ -3,7 +3,7 @@ from os.path import join, isfile
 from tqdm import tqdm
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
+from torch.utils.data import Dataset, DataLoader
 import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 
@@ -45,7 +45,7 @@ test_kwargs = {
         'svhn': {'split': 'test', 'download': True}
         }
 
-def get_class_balanced_labels(targets, labels_per_class):
+def get_class_balanced_labels(targets, labels_per_class, save_path=None):
     num_classes = max(targets) + 1
     
     indices = list(range(len(targets)))
@@ -60,6 +60,11 @@ def get_class_balanced_labels(targets, labels_per_class):
             label_count[targets[idx]] += 1
         else:
             unlabel_indices.append(idx)
+    
+    if save_path is not None:
+        with open(join(save_path, 'label_indices.txt'), 'w') as f:
+            for idx in label_indices:
+                f.write(str(idx) + '\n')
         
     return label_indices, unlabel_indices
 
@@ -76,12 +81,12 @@ def get_repeated_indices(indices, num_iters, batch_size):
 
 class CIFAR10(dsets.CIFAR10):
     num_classes = 10
-    def __init__(self, num_labels, num_iters, batch_size, return_unlabel=True, **kwargs):
+    def __init__(self, num_labels, num_iters, batch_size, return_unlabel=True, save_path=None, **kwargs):
         super(CIFAR10, self).__init__(**kwargs)
         labels_per_class = num_labels // self.num_classes
         self.return_unlabel = return_unlabel
         
-        self.label_indices, self.unlabel_indices = get_class_balanced_labels(self.targets, labels_per_class)
+        self.label_indices, self.unlabel_indices = get_class_balanced_labels(self.targets, labels_per_class, save_path)
         self.repeated_label_indices = get_repeated_indices(self.label_indices, num_iters, batch_size)
         if self.return_unlabel:
             self.repeated_unlabel_indices = get_repeated_indices(self.unlabel_indices, num_iters, batch_size)
@@ -108,14 +113,13 @@ class CIFAR10(dsets.CIFAR10):
                 unlabel_img = self.transform(unlabel_img)
             if self.target_transform is not None:
                 unlabel_target = self.target_transform(unlabel_target)
-
             return label_img, label_target, unlabel_img, unlabel_target
         else:
             return label_img, label_target
 
 class CIFAR100(dsets.CIFAR100):
     num_classes = 100
-    def __init__(self, num_labels, num_iters, batch_size, return_unlabel=True, additional='None', **kwargs):
+    def __init__(self, num_labels, num_iters, batch_size, return_unlabel=True, additional='None', save_path=None, **kwargs):
         super(CIFAR100, self).__init__(**kwargs)
         labels_per_class = num_labels // self.num_classes
         self.return_unlabel = return_unlabel
@@ -130,7 +134,7 @@ class CIFAR100(dsets.CIFAR100):
             self.repeated_label_indices = get_repeated_indices(list(range(len(self.data))), num_iters, batch_size)
             self.repeated_unlabel_indices = get_repeated_indices(list(range(len(self.additional_data))), num_iters, batch_size)
         else:
-            self.label_indices, self.unlabel_indices = get_class_balanced_labels(self.targets, labels_per_class)
+            self.label_indices, self.unlabel_indices = get_class_balanced_labels(self.targets, labels_per_class, save_path)
             self.repeated_label_indices = get_repeated_indices(self.label_indices, num_iters, batch_size)
             if self.return_unlabel:
                 self.repeated_unlabel_indices = get_repeated_indices(self.unlabel_indices, num_iters, batch_size)
@@ -155,7 +159,6 @@ class CIFAR100(dsets.CIFAR100):
             if self.transform is not None:
                 unlabel_img = self.transform(unlabel_img)
             unlabel_target = self.additional_targets[unlabel_idx]
-        
             return label_img, label_target, unlabel_img, unlabel_target
         elif self.return_unlabel:
             unlabel_idx = self.repeated_unlabel_indices[idx]
@@ -166,19 +169,18 @@ class CIFAR100(dsets.CIFAR100):
                 unlabel_img = self.transform(unlabel_img)
             if self.target_transform is not None:
                 unlabel_target = self.target_transform(unlabel_target)
-        
             return label_img, label_target, unlabel_img, unlabel_target
         else:
             return label_img, label_target
 
 class SVHN(dsets.SVHN):
     num_classes = 10
-    def __init__(self, num_labels, num_iters, batch_size, return_unlabel=True, **kwargs):
+    def __init__(self, num_labels, num_iters, batch_size, return_unlabel=True, save_path=None, **kwargs):
         super(SVHN, self).__init__(**kwargs)
         labels_per_class = num_labels // self.num_classes
         self.return_unlabel = return_unlabel
         
-        self.label_indices, self.unlabel_indices = get_class_balanced_labels(self.labels, labels_per_class)
+        self.label_indices, self.unlabel_indices = get_class_balanced_labels(self.labels, labels_per_class, save_path)
         self.repeated_label_indices = get_repeated_indices(self.label_indices, num_iters, batch_size)
         if self.return_unlabel:
             self.repeated_unlabel_indices = get_repeated_indices(self.unlabel_indices, num_iters, batch_size)
@@ -205,7 +207,6 @@ class SVHN(dsets.SVHN):
                 unlabel_img = self.transform(unlabel_img)
             if self.target_transform is not None:
                 unlabel_target = self.target_transform(unlabel_target)
-        
             return label_img, label_target, unlabel_img, unlabel_target
         else:
             return label_img, label_target
@@ -222,7 +223,7 @@ test_dset = {
         'svhn': dsets.SVHN
         }
 
-def dataloader(dset, path, bs, num_workers, num_labels, num_iters, return_unlabel=True, additional='None'):
+def dataloader(dset, path, bs, num_workers, num_labels, num_iters, return_unlabel=True, additional='None', save_path=None):
     assert dset in ["cifar10", "cifar100", "svhn"]
     assert additional in ['None', '237k', '500k']
     if additional != 'None':
@@ -236,6 +237,7 @@ def dataloader(dset, path, bs, num_workers, num_labels, num_iters, return_unlabe
             batch_size = bs,
             return_unlabel = return_unlabel,
             transform = train_transform[dset],
+            save_path = save_path,
             **train_kwargs[dset]
             )
     train_loader = DataLoader(train_dataset, batch_size=bs, num_workers=num_workers, shuffle=False)
